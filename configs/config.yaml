@@ -1,0 +1,29 @@
+defaults:
+  - env: custom_sp_env
+  - algo: td3_bc
+  - model: mlp_actor_critic
+  - data: parquet_sp
+  - logger: tensorboard
+  - _self_
+
+seed: 0
+device: auto
+resume_path: null
+resume_id: null
+watch: false
+buffer_size: null
+checkpoint_path: ${oc.env:SPRL_CHECKPOINT_PATH,''}
+
+train:
+  epoch: 200
+  epoch_num_steps: 5000
+  batch_size: 256
+
+paths:
+  logdir: ${oc.env:SPRL_LOGDIR,log}
+  save_metrics_filename: final_metrics.json
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null

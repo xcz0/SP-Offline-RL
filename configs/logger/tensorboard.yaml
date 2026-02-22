@@ -1,0 +1,2 @@
+type: tensorboard
+wandb_project: offline_rl

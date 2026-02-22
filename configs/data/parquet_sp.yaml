@@ -1,0 +1,11 @@
+adapter: parquet
+path: ${oc.env:SPRL_DATA_PATH,data/offline_dataset.parquet}
+obs_norm: false
+columns:
+  obs: obs
+  act: act
+  rew: rew
+  done: done
+  obs_next: obs_next
+  terminated: null
+  truncated: null

@@ -1,0 +1,2 @@
+type: wandb
+wandb_project: ${oc.env:SPRL_WANDB_PROJECT,offline_rl}

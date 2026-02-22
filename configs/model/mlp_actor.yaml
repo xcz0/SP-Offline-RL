@@ -1,0 +1,2 @@
+name: mlp_actor
+hidden_sizes: [256, 256]

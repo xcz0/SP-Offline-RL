@@ -25,6 +25,8 @@ class TD3BCFactory(AlgoFactory):
             actor=model_bundle.actor,
             exploration_noise=GaussianNoise(sigma=float(cfg.exploration_noise)),
             action_space=env.action_space,
+            action_scaling=False,
+            action_bound_method=None,
         )
 
         algo = TD3BC(

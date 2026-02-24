@@ -21,8 +21,8 @@ class BCILFactory(AlgoFactory):
         policy = ImitationPolicy(
             actor=model_bundle.actor,
             action_space=env.action_space,
-            action_scaling=True,
-            action_bound_method="clip",
+            action_scaling=False,
+            action_bound_method=None,
         )
 
         algo = OfflineImitationLearning(

@@ -6,9 +6,9 @@ from typing import Any
 
 from omegaconf import DictConfig, OmegaConf
 
-from src.evaluation.sp_sim.policy_evaluator import evaluate_policy_with_simulator
-from src.evaluation.sp_sim.replay_evaluator import evaluate_replay_with_simulator
-from src.evaluation.sp_sim.types import CompositeEvalResult
+from src.evaluation.policy_evaluator import evaluate_policy_with_simulator
+from src.evaluation.replay_evaluator import evaluate_replay_with_simulator
+from src.evaluation.types import CompositeEvalResult
 
 
 def _to_dict(cfg: DictConfig | dict[str, Any]) -> dict[str, Any]:

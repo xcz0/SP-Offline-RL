@@ -10,8 +10,8 @@ import numpy as np
 from tianshou.data import CollectStats
 from tianshou.data.stats import SequenceSummaryStats
 
-from src.evaluation.sp_sim.pipeline import evaluate_composite_with_simulator
-from src.evaluation.sp_sim.types import CompositeEvalResult
+from src.evaluation.pipeline import evaluate_composite_with_simulator
+from src.evaluation.types import CompositeEvalResult
 
 
 @dataclass(slots=True)
@@ -88,4 +88,3 @@ class SimulationEvalCollector:
             lens=lens,
             lens_stat=SequenceSummaryStats.from_sequence(lens),
         )
-

@@ -14,9 +14,9 @@ from tianshou.env import BaseVectorEnv
 from src.core.exceptions import ConfigurationError
 from src.core.seed import seed_vector_env, set_global_seed
 from src.data.transforms import normalize_obs_array
-from src.evaluation.sp_sim.deps import require_sprwkv
-from src.evaluation.sp_sim.pipeline import evaluate_composite_with_simulator
-from src.evaluation.sp_sim.replay_evaluator import evaluate_replay_with_simulator
+from src.evaluation.deps import require_sprwkv
+from src.evaluation.pipeline import evaluate_composite_with_simulator
+from src.evaluation.replay_evaluator import evaluate_replay_with_simulator
 from src.runners.common import (
     apply_obs_norm,
     apply_obs_norm_to_obs_act_data,

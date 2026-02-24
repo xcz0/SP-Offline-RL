@@ -8,9 +8,9 @@ from typing import Any
 import pandas as pd
 
 from src.core.exceptions import ConfigurationError
-from src.evaluation.sp_sim.dataset import load_user_data_map, sample_eval_targets
-from src.evaluation.sp_sim.deps import require_sprwkv
-from src.evaluation.sp_sim.types import ReplayEvalResult
+from src.evaluation.dataset import load_user_data_map, sample_eval_targets
+from src.evaluation.deps import require_sprwkv
+from src.evaluation.types import ReplayEvalResult
 
 
 def _resolve_torch_dtype(dtype_name: str):

@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from src.core.exceptions import DataValidationError
-from src.evaluation.sp_sim.types import EvalTarget
+from src.evaluation.types import EvalTarget
 
 SIM_REQUIRED_COLUMNS = (
     "card_id",
@@ -140,4 +140,3 @@ def sample_eval_targets(
                 )
             )
     return targets
-

@@ -17,8 +17,8 @@ from tianshou.trainer import InfoStats, OfflineTrainerParams
 
 from src.core.seed import seed_vector_env, set_global_seed
 from src.data.transforms import normalize_obs_array
-from src.evaluation.sp_sim.collector import SimulationEvalCollector
-from src.evaluation.sp_sim.deps import require_sprwkv
+from src.evaluation.collector import SimulationEvalCollector
+from src.evaluation.deps import require_sprwkv
 from src.logging.factory import build_logger
 from src.runners.common import (
     apply_obs_norm,

@@ -1,10 +1,10 @@
 """Spaced-repetition simulator evaluation helpers."""
 
-from src.evaluation.sp_sim.collector import SimulationEvalCollector
-from src.evaluation.sp_sim.policy_evaluator import evaluate_policy_with_simulator
-from src.evaluation.sp_sim.replay_evaluator import evaluate_replay_with_simulator
-from src.evaluation.sp_sim.scoring import compute_score_from_metrics
-from src.evaluation.sp_sim.types import (
+from src.evaluation.collector import SimulationEvalCollector
+from src.evaluation.policy_evaluator import evaluate_policy_with_simulator
+from src.evaluation.replay_evaluator import evaluate_replay_with_simulator
+from src.evaluation.scoring import compute_score_from_metrics
+from src.evaluation.types import (
     CompositeEvalResult,
     EvalTarget,
     PolicyEvalResult,
@@ -21,4 +21,3 @@ __all__ = [
     "evaluate_policy_with_simulator",
     "evaluate_replay_with_simulator",
 ]
-

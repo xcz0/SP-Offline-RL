@@ -11,10 +11,10 @@ from tianshou.data import Batch
 
 from src.core.exceptions import ConfigurationError
 from src.data.bc_dataset_builder import CARD_FEATURE_COLUMNS
-from src.evaluation.sp_sim.dataset import load_user_data_map, sample_eval_targets
-from src.evaluation.sp_sim.deps import require_sprwkv
-from src.evaluation.sp_sim.scoring import add_score_column, summarize_scored_metrics
-from src.evaluation.sp_sim.types import PolicyEvalResult
+from src.evaluation.dataset import load_user_data_map, sample_eval_targets
+from src.evaluation.deps import require_sprwkv
+from src.evaluation.scoring import add_score_column, summarize_scored_metrics
+from src.evaluation.types import PolicyEvalResult
 
 
 def _resolve_torch_dtype(dtype_name: str):

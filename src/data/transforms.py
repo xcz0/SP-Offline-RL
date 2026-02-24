@@ -15,11 +15,15 @@ def normalize_obs_in_replay_buffer(
     obs_rms = RunningMeanStd()
     obs_rms.update(replay_buffer.obs)
     eps = np.finfo(np.float32).eps.item()
+    scale = np.sqrt(obs_rms.var + eps)
 
-    replay_buffer._meta["obs"] = (replay_buffer.obs - obs_rms.mean) / np.sqrt(
-        obs_rms.var + eps
+    normalized_obs = ((replay_buffer.obs - obs_rms.mean) / scale).astype(
+        np.float32, copy=False
     )
-    replay_buffer._meta["obs_next"] = (replay_buffer.obs_next - obs_rms.mean) / np.sqrt(
-        obs_rms.var + eps
+    normalized_obs_next = ((replay_buffer.obs_next - obs_rms.mean) / scale).astype(
+        np.float32, copy=False
     )
+
+    replay_buffer.set_array_at_key(normalized_obs, key="obs")
+    replay_buffer.set_array_at_key(normalized_obs_next, key="obs_next")
     return replay_buffer, obs_rms

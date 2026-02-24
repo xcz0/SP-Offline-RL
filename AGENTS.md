@@ -8,13 +8,13 @@
 - `data/` is a local symlink to processed datasets; avoid committing large datasets, logs, or checkpoints.
 
 ## Build, Test, and Development Commands
-- `source .venv/bin/activate`: activate the project virtual environment before running `python`.
+- `source .venv/bin/activate`: activate the project virtual environment before running python related command.
 - `python scripts/train.py`: run default offline training.
 - `python scripts/train.py algo=bc_il model=mlp_actor`: run training with Hydra overrides.
 - `python scripts/eval.py checkpoint_path=/abs/path/policy.pth`: evaluate a saved policy checkpoint.
 - `python -m pytest -q`: run all tests.
 - `python -m pytest -m integration -q`: run end-to-end smoke tests only.
-- `uv run ruff check .`: lint Python code.
+- `ruff check .`: lint Python code.
 
 ## Coding Style & Naming Conventions
 - Target Python `>=3.12`; use 4-space indentation and follow PEP 8.

@@ -15,7 +15,7 @@ from src.data.dataset_adapter import OfflineDatasetAdapter
 class ParquetOfflineDatasetAdapter(OfflineDatasetAdapter):
     """Loads offline transitions from a Parquet table with configurable columns."""
 
-    def __init__(self, path: str, columns: dict[str, str | None]) -> None:
+    def __init__(self, path: str, columns: dict[str, str]) -> None:
         self.path = Path(path)
         self.columns = columns
 
@@ -36,7 +36,7 @@ class ParquetOfflineDatasetAdapter(OfflineDatasetAdapter):
             )
             return values.reshape(len(column), int(column.type.list_size))
 
-        if pa.types.is_list(column.type):
+        if pa.types.is_list(column.type) or pa.types.is_large_list(column.type):
             offsets = np.asarray(column.offsets.to_numpy(zero_copy_only=False))
             row_lengths = np.diff(offsets)
             if row_lengths.size == 0:
@@ -46,9 +46,14 @@ class ParquetOfflineDatasetAdapter(OfflineDatasetAdapter):
                     column.values.to_numpy(zero_copy_only=False), dtype=np.float32
                 )
                 return values.reshape(len(column), int(row_lengths[0]))
+            raise ValueError(
+                f"Column '{name}' must contain equal-length vectors, got row lengths "
+                f"{row_lengths.min()}..{row_lengths.max()}."
+            )
 
-        # Fallback for irregular list/object columns.
-        return np.asarray(column.to_pylist(), dtype=np.float32)
+        raise ValueError(
+            f"Column '{name}' must be fixed_size_list or list type, got {column.type}."
+        )
 
     def load(self) -> DatasetDict:
         obs_col = self._required_column_name("obs")
@@ -56,8 +61,8 @@ class ParquetOfflineDatasetAdapter(OfflineDatasetAdapter):
         rew_col = self._required_column_name("rew")
         done_col = self._required_column_name("done")
         obs_next_col = self._required_column_name("obs_next")
-        terminated_col = self.columns.get("terminated")
-        truncated_col = self.columns.get("truncated")
+        terminated_col = self._required_column_name("terminated")
+        truncated_col = self._required_column_name("truncated")
 
         column_names = list(
             dict.fromkeys(
@@ -67,7 +72,8 @@ class ParquetOfflineDatasetAdapter(OfflineDatasetAdapter):
                     rew_col,
                     done_col,
                     obs_next_col,
-                    *(name for name in (terminated_col, truncated_col) if name),
+                    terminated_col,
+                    truncated_col,
                 ]
             )
         )
@@ -80,15 +86,8 @@ class ParquetOfflineDatasetAdapter(OfflineDatasetAdapter):
             "rew": self._scalar_column(table, rew_col, np.float32),
             "done": done,
             "obs_next": self._stack_column(table, obs_next_col),
+            "terminated": self._scalar_column(table, terminated_col, np.bool_),
+            "truncated": self._scalar_column(table, truncated_col, np.bool_),
         }
-
-        if terminated_col:
-            data["terminated"] = self._scalar_column(table, terminated_col, np.bool_)
-        else:
-            data["terminated"] = done
-        if truncated_col:
-            data["truncated"] = self._scalar_column(table, truncated_col, np.bool_)
-        else:
-            data["truncated"] = np.zeros_like(done, dtype=np.bool_)
 
         return data

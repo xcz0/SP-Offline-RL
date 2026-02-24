@@ -12,6 +12,10 @@ def test_default_config_load_and_override() -> None:
     assert cfg.seed == 0
     assert cfg.train.epoch == 200
 
+    data_cfg = OmegaConf.load(CONFIG_ROOT / "data" / "parquet_sp.yaml")
+    assert data_cfg.columns.terminated == "terminated"
+    assert data_cfg.columns.truncated == "truncated"
+
     cfg.train.epoch = 2
     cfg.algo = {"name": "bc_il", "lr": 1e-4}
     assert cfg.train.epoch == 2

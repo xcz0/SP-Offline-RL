@@ -9,22 +9,21 @@ from typing import Any
 
 import gymnasium as gym
 import numpy as np
-import torch
 from omegaconf import DictConfig
 from tianshou.data import Collector, CollectStats
-from tianshou.env import BaseVectorEnv, DummyVectorEnv, SubprocVectorEnv, VectorEnvNormObs
+from tianshou.env import BaseVectorEnv
 from tianshou.trainer import InfoStats, OfflineTrainerParams
-from tianshou.utils.space_info import SpaceInfo
 
-from src.algos.registry import get_algo_factory
 from src.core.seed import seed_vector_env, set_global_seed
-from src.data.dataset_adapter import build_dataset_adapter
-from src.data.replay_buffer_builder import build_replay_buffer
-from src.data.schema import validate_against_env, validate_and_standardize_dataset
-from src.data.transforms import normalize_obs_in_replay_buffer
 from src.logging.factory import build_logger
-from src.logging.metrics import collect_stats_to_metrics
-from src.models.registry import get_model_factory
+from src.runners.common import (
+    apply_obs_norm,
+    build_algorithm,
+    build_replay_buffer_from_cfg,
+    collect_eval_metrics,
+    load_policy_state,
+    make_test_envs,
+)
 from src.runners.callbacks import build_save_best_fn
 from src.utils.hydra import as_yaml, resolve_config, resolve_device
 from src.utils.io import ensure_dir, save_json, save_text
@@ -48,16 +47,9 @@ def _to_builtin(value: Any) -> Any:
     return value
 
 
-def _make_test_envs(task: str, num_test_envs: int) -> BaseVectorEnv:
-    if num_test_envs <= 1:
-        return DummyVectorEnv([lambda: gym.make(task)])
-    return SubprocVectorEnv([lambda: gym.make(task) for _ in range(num_test_envs)])
-
-
 def run_offline_training(cfg: DictConfig) -> dict[str, Any]:
     """Run end-to-end offline training and return summary metrics."""
 
-    resolved_cfg = resolve_config(cfg)
     device = resolve_device(str(cfg.device))
     timestamp = datetime.datetime.now().strftime("%y%m%d-%H%M%S")
 
@@ -67,50 +59,34 @@ def run_offline_training(cfg: DictConfig) -> dict[str, Any]:
     log_path = os.path.join(str(cfg.paths.logdir), run_name)
     ensure_dir(log_path)
 
-    save_text(os.path.join(log_path, "resolved_config.yaml"), as_yaml(cfg))
+    resolved_config_path = os.path.join(log_path, "resolved_config.yaml")
+    save_text(resolved_config_path, as_yaml(cfg))
 
     env = gym.make(str(cfg.env.task))
     test_envs: BaseVectorEnv | None = None
     logger_artifacts = None
 
     try:
-        space_info = SpaceInfo.from_env(env)
         set_global_seed(int(cfg.seed), seed_cuda=device.startswith("cuda"))
-
-        adapter = build_dataset_adapter(cfg.data)
-        data = validate_and_standardize_dataset(adapter.load())
-        validate_against_env(data, env)
-
-        replay_buffer = build_replay_buffer(
-            data,
+        replay_buffer = build_replay_buffer_from_cfg(
+            cfg,
+            env,
             cfg.get("buffer_size"),
-            validate=False,
         )
 
-        test_envs = _make_test_envs(str(cfg.env.task), int(cfg.env.num_test_envs))
+        test_envs = make_test_envs(str(cfg.env.task), int(cfg.env.num_test_envs))
         if bool(cfg.data.obs_norm):
-            replay_buffer, obs_rms = normalize_obs_in_replay_buffer(replay_buffer)
-            test_envs = VectorEnvNormObs(test_envs, update_obs_rms=False)
-            test_envs.set_obs_rms(obs_rms)
+            replay_buffer, test_envs = apply_obs_norm(replay_buffer, test_envs)
 
         seed_vector_env(test_envs, int(cfg.seed))
 
-        model_factory = get_model_factory(str(cfg.model.name))
-        model_bundle = model_factory.build(cfg.model, space_info, device)
-
-        algo_factory = get_algo_factory(str(cfg.algo.name))
-        algorithm = algo_factory.build(cfg.algo, env, model_bundle, device)
+        algorithm = build_algorithm(cfg, env, device)
 
         if cfg.resume_path:
-            algorithm.load_state_dict(
-                torch.load(
-                    str(cfg.resume_path),
-                    map_location=device,
-                    weights_only=True,
-                )
-            )
+            load_policy_state(algorithm, str(cfg.resume_path), device)
 
         test_collector = Collector[CollectStats](algorithm, test_envs)
+        resolved_cfg = resolve_config(cfg) if str(cfg.logger.type) == "wandb" else None
 
         logger_artifacts = build_logger(
             logger_cfg=cfg.logger,
@@ -118,25 +94,23 @@ def run_offline_training(cfg: DictConfig) -> dict[str, Any]:
             run_name=run_name,
             resume_id=cfg.resume_id,
             config_dict=resolved_cfg,
+            resolved_config_path=resolved_config_path,
         )
 
         save_best_fn = build_save_best_fn(log_path)
 
         if bool(cfg.watch):
             checkpoint = cfg.resume_path or os.path.join(log_path, "policy.pth")
-            algorithm.load_state_dict(
-                torch.load(
-                    str(checkpoint),
-                    map_location=device,
-                    weights_only=True,
-                )
+            load_policy_state(
+                algorithm,
+                str(checkpoint),
+                device,
             )
-            test_collector.reset()
-            collector_stats = test_collector.collect(
-                n_episode=int(cfg.env.num_test_envs),
+            _, metrics = collect_eval_metrics(
+                test_collector,
+                num_episodes=int(cfg.env.num_test_envs),
                 render=float(cfg.env.render),
             )
-            metrics = collect_stats_to_metrics(collector_stats)
             output = {
                 "mode": "watch",
                 "checkpoint": str(checkpoint),
@@ -162,14 +136,13 @@ def run_offline_training(cfg: DictConfig) -> dict[str, Any]:
         )
 
         seed_vector_env(test_envs, int(cfg.seed))
-        test_collector.reset()
-        collector_stats = test_collector.collect(
-            n_episode=int(cfg.env.num_test_envs),
+        _, eval_metrics = collect_eval_metrics(
+            test_collector,
+            num_episodes=int(cfg.env.num_test_envs),
             render=float(cfg.env.render),
         )
 
         train_dict = _info_stats_to_dict(training_result)
-        eval_metrics = collect_stats_to_metrics(collector_stats)
         final_metrics = {
             "log_path": log_path,
             "run_name": run_name,

@@ -3,19 +3,13 @@
 from __future__ import annotations
 
 import json
-import sys
-from pathlib import Path
 
 import hydra
 from omegaconf import DictConfig, OmegaConf
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
-
-from src.core.exceptions import ConfigurationError  # noqa: E402
-from src.runners.evaluator import run_evaluation  # noqa: E402
-from src.utils.env import load_env_file  # noqa: E402
+from src.core.exceptions import ConfigurationError
+from src.runners.evaluator import run_evaluation
+from src.utils.env import load_env_file
 
 load_env_file()
 

@@ -7,5 +7,5 @@ columns:
   rew: rew
   done: done
   obs_next: obs_next
-  terminated: null
-  truncated: null
+  terminated: terminated
+  truncated: truncated

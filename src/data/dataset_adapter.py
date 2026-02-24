@@ -23,9 +23,14 @@ def build_dataset_adapter(cfg: Any) -> OfflineDatasetAdapter:
     if adapter_type == "parquet":
         from src.data.parquet_adapter import ParquetOfflineDatasetAdapter
 
+        raw_columns = dict(cfg.columns)
+        columns = {
+            str(key): (str(value) if value is not None else "")
+            for key, value in raw_columns.items()
+        }
         return ParquetOfflineDatasetAdapter(
             path=str(cfg.path),
-            columns=dict(cfg.columns),
+            columns=columns,
         )
     raise ValueError(
         f"Unsupported data adapter type: {cfg.adapter}. "

@@ -66,11 +66,12 @@ SPRL_CHECKPOINT_PATH=
 - `rew`: `float`
 - `done`: `bool`
 - `obs_next`: 向量（list/array<float>）
+- `terminated`: `bool`
+- `truncated`: `bool`
 
-`terminated` / `truncated` 可在配置中映射到真实列；若列映射为 `null`，适配器会自动生成：
-
-- `terminated = done`
-- `truncated = False`
+说明：
+- `terminated` / `truncated` 必须在 `configs/data/parquet_sp.yaml` 中映射到真实列。
+- 向量列需要是固定长度或等长 list；不再支持不规则长度向量列。
 
 ## 测试
 

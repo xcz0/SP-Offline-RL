@@ -16,6 +16,8 @@ def _write_parquet_dataset(path: Path, n: int = 64) -> None:
     act = np.random.uniform(-1.0, 1.0, size=(n, 1)).astype(np.float32)
     rew = np.random.randn(n).astype(np.float32)
     done = np.zeros(n, dtype=np.bool_)
+    terminated = done.copy()
+    truncated = np.zeros(n, dtype=np.bool_)
     obs_next = np.random.randn(n, 3).astype(np.float32)
 
     frame = pd.DataFrame(
@@ -24,6 +26,8 @@ def _write_parquet_dataset(path: Path, n: int = 64) -> None:
             "act": [x.tolist() for x in act],
             "rew": rew,
             "done": done,
+            "terminated": terminated,
+            "truncated": truncated,
             "obs_next": [x.tolist() for x in obs_next],
         }
     )
@@ -56,8 +60,8 @@ def _base_cfg(tmp_path: Path, dataset_path: Path):
                     "rew": "rew",
                     "done": "done",
                     "obs_next": "obs_next",
-                    "terminated": None,
-                    "truncated": None,
+                    "terminated": "terminated",
+                    "truncated": "truncated",
                 },
             },
             "logger": {"type": "tensorboard", "wandb_project": "test"},

@@ -11,10 +11,20 @@ def test_default_config_load_and_override() -> None:
     cfg = OmegaConf.load(CONFIG_ROOT / "config.yaml")
     assert cfg.seed == 0
     assert cfg.train.epoch == 200
+    assert cfg.eval_mode == "auto"
 
     data_cfg = OmegaConf.load(CONFIG_ROOT / "data" / "parquet_sp.yaml")
     assert data_cfg.columns.terminated == "terminated"
     assert data_cfg.columns.truncated == "truncated"
+
+    bc_train_data_cfg = OmegaConf.load(CONFIG_ROOT / "data" / "parquet_sp_bc_train.yaml")
+    bc_val_data_cfg = OmegaConf.load(CONFIG_ROOT / "data" / "parquet_sp_bc_val.yaml")
+    assert set(bc_train_data_cfg.columns.keys()) == {"obs", "act"}
+    assert set(bc_val_data_cfg.columns.keys()) == {"obs", "act"}
+
+    sim_eval_cfg = OmegaConf.load(CONFIG_ROOT / "sim_eval" / "default.yaml")
+    assert sim_eval_cfg.eval_every_n_epoch == 5
+    assert sim_eval_cfg.warmup_mode == "fifth"
 
     cfg.train.epoch = 2
     cfg.algo = {"name": "bc_il", "lr": 1e-4}

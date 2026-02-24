@@ -37,6 +37,28 @@ def _columns() -> dict[str, str]:
     }
 
 
+def test_parquet_adapter_load_obs_act_with_minimal_mappings(tmp_path: Path) -> None:
+    path = tmp_path / "offline_obs_act.parquet"
+    n = 5
+    frame = pd.DataFrame(
+        {
+            "obs": [x.tolist() for x in np.random.randn(n, 3).astype(np.float32)],
+            "act": [x.tolist() for x in np.random.randn(n, 1).astype(np.float32)],
+        }
+    )
+    frame.to_parquet(path, index=False)
+
+    adapter = ParquetOfflineDatasetAdapter(
+        path=str(path),
+        columns={"obs": "obs", "act": "act"},
+    )
+    data = adapter.load_obs_act()
+
+    assert set(data.keys()) == {"obs", "act"}
+    assert data["obs"].shape == (n, 3)
+    assert data["act"].shape == (n, 1)
+
+
 def test_parquet_adapter_reads_explicit_terminated_and_truncated(tmp_path: Path) -> None:
     path = tmp_path / "offline.parquet"
     frame = _write_dataset(path)

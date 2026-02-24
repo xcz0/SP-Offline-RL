@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from src.core.exceptions import DataValidationError
-from src.data.schema import validate_and_standardize_dataset
+from src.data.schema import validate_and_standardize_dataset, validate_obs_act_dataset
 
 
 def _sample_data(n: int = 8) -> dict[str, np.ndarray]:
@@ -56,3 +56,23 @@ def test_schema_fail_on_missing_terminated_truncated() -> None:
     data.pop("truncated")
     with pytest.raises(DataValidationError):
         validate_and_standardize_dataset(data)
+
+
+def test_obs_act_schema_valid_without_rewards() -> None:
+    n = 10
+    data = {
+        "obs": np.random.randn(n, 3).astype(np.float32),
+        "act": np.random.randn(n).astype(np.float32),
+    }
+    out = validate_obs_act_dataset(data)
+
+    assert set(out.keys()) == {"obs", "act"}
+    assert out["obs"].dtype == np.float32
+    assert out["act"].dtype == np.float32
+    assert out["act"].shape == (n, 1)
+
+
+def test_obs_act_schema_fail_on_missing_required() -> None:
+    data = {"obs": np.random.randn(4, 3).astype(np.float32)}
+    with pytest.raises(DataValidationError):
+        validate_obs_act_dataset(data)

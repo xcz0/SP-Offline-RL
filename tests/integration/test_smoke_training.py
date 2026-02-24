@@ -34,6 +34,19 @@ def _write_parquet_dataset(path: Path, n: int = 64) -> None:
     frame.to_parquet(path, index=False)
 
 
+def _write_parquet_obs_act_dataset(path: Path, n: int = 64) -> None:
+    obs = np.random.randn(n, 3).astype(np.float32)
+    act = np.random.uniform(-1.0, 1.0, size=(n, 1)).astype(np.float32)
+
+    frame = pd.DataFrame(
+        {
+            "obs": [x.tolist() for x in obs],
+            "act": [x.tolist() for x in act],
+        }
+    )
+    frame.to_parquet(path, index=False)
+
+
 def _base_cfg(tmp_path: Path, dataset_path: Path):
     return OmegaConf.create(
         {
@@ -117,6 +130,42 @@ def test_train_then_eval_checkpoint(tmp_path: Path) -> None:
     cfg = _base_cfg(tmp_path, dataset_path)
     cfg.model = {"name": "mlp_actor", "hidden_sizes": [32, 32]}
     cfg.algo = {"name": "bc_il", "lr": 1e-4}
+
+    train_result = run_offline_training(cfg)
+    log_path = Path(train_result["final_metrics"]["log_path"])
+    checkpoint = log_path / "policy.pth"
+    assert checkpoint.exists()
+
+    eval_result = run_evaluation(cfg, str(checkpoint))
+    assert "test_reward_mean" in eval_result
+    assert "test_reward_std" in eval_result
+
+
+@pytest.mark.integration
+def test_bc_il_smoke_train_obs_act_only_dataset(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "offline_obs_act.parquet"
+    _write_parquet_obs_act_dataset(dataset_path)
+
+    cfg = _base_cfg(tmp_path, dataset_path)
+    cfg.model = {"name": "mlp_actor", "hidden_sizes": [32, 32]}
+    cfg.algo = {"name": "bc_il", "lr": 1e-4}
+    cfg.data.columns = {"obs": "obs", "act": "act"}
+
+    result = run_offline_training(cfg)
+    assert "final_metrics" in result
+    assert Path(result["final_metrics"]["log_path"]).exists()
+
+
+@pytest.mark.integration
+def test_bc_il_train_then_eval_obs_norm_obs_act_only_dataset(tmp_path: Path) -> None:
+    dataset_path = tmp_path / "offline_obs_act.parquet"
+    _write_parquet_obs_act_dataset(dataset_path)
+
+    cfg = _base_cfg(tmp_path, dataset_path)
+    cfg.model = {"name": "mlp_actor", "hidden_sizes": [32, 32]}
+    cfg.algo = {"name": "bc_il", "lr": 1e-4}
+    cfg.data.columns = {"obs": "obs", "act": "act"}
+    cfg.data.obs_norm = True
 
     train_result = run_offline_training(cfg)
     log_path = Path(train_result["final_metrics"]["log_path"])

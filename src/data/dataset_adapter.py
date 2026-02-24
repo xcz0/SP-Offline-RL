@@ -15,6 +15,15 @@ class OfflineDatasetAdapter(ABC):
     def load(self) -> DatasetDict:
         """Load offline dataset into canonical numpy arrays."""
 
+    def load_obs_act(self) -> DatasetDict:
+        """Load minimal behavior-cloning fields."""
+
+        data = self.load()
+        return {
+            "obs": data["obs"],
+            "act": data["act"],
+        }
+
 
 def build_dataset_adapter(cfg: Any) -> OfflineDatasetAdapter:
     """Build dataset adapter based on config group."""

@@ -27,3 +27,16 @@ def normalize_obs_in_replay_buffer(
     replay_buffer.set_array_at_key(normalized_obs, key="obs")
     replay_buffer.set_array_at_key(normalized_obs_next, key="obs_next")
     return replay_buffer, obs_rms
+
+
+def normalize_obs_array(
+    obs: np.ndarray,
+) -> tuple[np.ndarray, RunningMeanStd]:
+    """Normalize an observation array and return normalization statistics."""
+
+    obs_rms = RunningMeanStd()
+    obs_rms.update(obs)
+    eps = np.finfo(np.float32).eps.item()
+    scale = np.sqrt(obs_rms.var + eps)
+    normalized_obs = ((obs - obs_rms.mean) / scale).astype(np.float32, copy=False)
+    return normalized_obs, obs_rms

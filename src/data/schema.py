@@ -20,6 +20,11 @@ REQUIRED_FIELDS = (
     "truncated",
 )
 
+BC_REQUIRED_FIELDS = (
+    "obs",
+    "act",
+)
+
 
 def _as_np(name: str, value: Any, dtype: np.dtype) -> np.ndarray:
     try:
@@ -94,6 +99,36 @@ def validate_and_standardize_dataset(data: DatasetDict) -> DatasetDict:
         standardized["act"] = standardized["act"].reshape(-1, 1)
 
     return standardized
+
+
+def validate_obs_act_dataset(data: DatasetDict) -> DatasetDict:
+    """Validate behavior-cloning datasets with only observation/action fields."""
+
+    standardized: DatasetDict = dict(data)
+
+    missing = set(BC_REQUIRED_FIELDS) - set(standardized)
+    if missing:
+        missing_fields = ", ".join(sorted(missing))
+        raise DataValidationError(
+            f"Missing required dataset fields: {missing_fields}."
+        )
+
+    standardized["obs"] = _as_np("obs", standardized["obs"], np.float32)
+    standardized["act"] = _as_np("act", standardized["act"], np.float32)
+
+    n = standardized["obs"].shape[0]
+    if standardized["act"].shape[0] != n:
+        raise DataValidationError(
+            f"Field 'act' first dimension mismatch: expected {n}, got {standardized['act'].shape[0]}."
+        )
+
+    if standardized["act"].ndim == 1:
+        standardized["act"] = standardized["act"].reshape(-1, 1)
+
+    return {
+        "obs": standardized["obs"],
+        "act": standardized["act"],
+    }
 
 
 def validate_against_env(data: DatasetDict, env: Any) -> None:

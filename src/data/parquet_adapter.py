@@ -91,3 +91,14 @@ class ParquetOfflineDatasetAdapter(OfflineDatasetAdapter):
         }
 
         return data
+
+    def load_obs_act(self) -> DatasetDict:
+        obs_col = self._required_column_name("obs")
+        act_col = self._required_column_name("act")
+
+        column_names = list(dict.fromkeys([obs_col, act_col]))
+        table = pq.read_table(self.path, columns=column_names, use_threads=True)
+        return {
+            "obs": self._stack_column(table, obs_col),
+            "act": self._stack_column(table, act_col),
+        }

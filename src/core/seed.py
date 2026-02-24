@@ -9,13 +9,13 @@ import numpy as np
 import torch
 
 
-def set_global_seed(seed: int) -> None:
+def set_global_seed(seed: int, *, seed_cuda: bool = True) -> None:
     """Seed Python, NumPy and PyTorch for reproducibility."""
 
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    if torch.cuda.is_available():
+    if seed_cuda:
         torch.cuda.manual_seed_all(seed)
 
 

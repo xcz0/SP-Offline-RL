@@ -1,0 +1,7 @@
+adapter: parquet
+path: ${oc.env:SPRL_BC_TRAIN_PATH,data/bc_train.parquet}
+obs_norm: false
+columns:
+  obs: obs
+  act: act
+

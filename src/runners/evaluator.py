@@ -8,7 +8,7 @@ import gymnasium as gym
 import torch
 from omegaconf import DictConfig
 from tianshou.data import Collector, CollectStats
-from tianshou.env import BaseVectorEnv, SubprocVectorEnv, VectorEnvNormObs
+from tianshou.env import BaseVectorEnv, DummyVectorEnv, SubprocVectorEnv, VectorEnvNormObs
 from tianshou.utils.space_info import SpaceInfo
 
 from src.algos.registry import get_algo_factory
@@ -23,6 +23,8 @@ from src.utils.hydra import resolve_device
 
 
 def _make_test_envs(task: str, num_test_envs: int) -> BaseVectorEnv:
+    if num_test_envs <= 1:
+        return DummyVectorEnv([lambda: gym.make(task)])
     return SubprocVectorEnv([lambda: gym.make(task) for _ in range(num_test_envs)])
 
 
@@ -35,14 +37,18 @@ def run_evaluation(cfg: DictConfig, checkpoint_path: str) -> dict[str, Any]:
     test_envs: BaseVectorEnv | None = None
     try:
         space_info = SpaceInfo.from_env(env)
-        set_global_seed(int(cfg.seed))
+        set_global_seed(int(cfg.seed), seed_cuda=device.startswith("cuda"))
 
         test_envs = _make_test_envs(str(cfg.env.task), int(cfg.env.num_test_envs))
         if bool(cfg.data.obs_norm):
             adapter = build_dataset_adapter(cfg.data)
             data = validate_and_standardize_dataset(adapter.load())
             validate_against_env(data, env)
-            replay_buffer = build_replay_buffer(data, cfg.get("buffer_size"))
+            replay_buffer = build_replay_buffer(
+                data,
+                cfg.get("buffer_size"),
+                validate=False,
+            )
             replay_buffer, obs_rms = normalize_obs_in_replay_buffer(replay_buffer)
             test_envs = VectorEnvNormObs(test_envs, update_obs_rms=False)
             test_envs.set_obs_rms(obs_rms)
@@ -55,7 +61,13 @@ def run_evaluation(cfg: DictConfig, checkpoint_path: str) -> dict[str, Any]:
         algo_factory = get_algo_factory(str(cfg.algo.name))
         algorithm = algo_factory.build(cfg.algo, env, model_bundle, device)
 
-        algorithm.load_state_dict(torch.load(checkpoint_path, map_location=device))
+        algorithm.load_state_dict(
+            torch.load(
+                checkpoint_path,
+                map_location=device,
+                weights_only=True,
+            )
+        )
 
         collector = Collector[CollectStats](algorithm, test_envs)
         collector.reset()

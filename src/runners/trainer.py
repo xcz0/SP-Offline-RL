@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from omegaconf import DictConfig
 from tianshou.data import Collector, CollectStats
-from tianshou.env import BaseVectorEnv, SubprocVectorEnv, VectorEnvNormObs
+from tianshou.env import BaseVectorEnv, DummyVectorEnv, SubprocVectorEnv, VectorEnvNormObs
 from tianshou.trainer import InfoStats, OfflineTrainerParams
 from tianshou.utils.space_info import SpaceInfo
 
@@ -49,6 +49,8 @@ def _to_builtin(value: Any) -> Any:
 
 
 def _make_test_envs(task: str, num_test_envs: int) -> BaseVectorEnv:
+    if num_test_envs <= 1:
+        return DummyVectorEnv([lambda: gym.make(task)])
     return SubprocVectorEnv([lambda: gym.make(task) for _ in range(num_test_envs)])
 
 
@@ -73,13 +75,17 @@ def run_offline_training(cfg: DictConfig) -> dict[str, Any]:
 
     try:
         space_info = SpaceInfo.from_env(env)
-        set_global_seed(int(cfg.seed))
+        set_global_seed(int(cfg.seed), seed_cuda=device.startswith("cuda"))
 
         adapter = build_dataset_adapter(cfg.data)
         data = validate_and_standardize_dataset(adapter.load())
         validate_against_env(data, env)
 
-        replay_buffer = build_replay_buffer(data, cfg.get("buffer_size"))
+        replay_buffer = build_replay_buffer(
+            data,
+            cfg.get("buffer_size"),
+            validate=False,
+        )
 
         test_envs = _make_test_envs(str(cfg.env.task), int(cfg.env.num_test_envs))
         if bool(cfg.data.obs_norm):
@@ -97,7 +103,11 @@ def run_offline_training(cfg: DictConfig) -> dict[str, Any]:
 
         if cfg.resume_path:
             algorithm.load_state_dict(
-                torch.load(str(cfg.resume_path), map_location=device)
+                torch.load(
+                    str(cfg.resume_path),
+                    map_location=device,
+                    weights_only=True,
+                )
             )
 
         test_collector = Collector[CollectStats](algorithm, test_envs)
@@ -114,7 +124,13 @@ def run_offline_training(cfg: DictConfig) -> dict[str, Any]:
 
         if bool(cfg.watch):
             checkpoint = cfg.resume_path or os.path.join(log_path, "policy.pth")
-            algorithm.load_state_dict(torch.load(str(checkpoint), map_location=device))
+            algorithm.load_state_dict(
+                torch.load(
+                    str(checkpoint),
+                    map_location=device,
+                    weights_only=True,
+                )
+            )
             test_collector.reset()
             collector_stats = test_collector.collect(
                 n_episode=int(cfg.env.num_test_envs),

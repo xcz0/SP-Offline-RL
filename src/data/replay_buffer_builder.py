@@ -11,10 +11,12 @@ from src.data.schema import validate_and_standardize_dataset
 def build_replay_buffer(
     data_dict: DatasetDict,
     buffer_size: int | None = None,
+    *,
+    validate: bool = True,
 ) -> ReplayBuffer:
     """Build a Tianshou ReplayBuffer from standardized dataset arrays."""
 
-    data = validate_and_standardize_dataset(data_dict)
+    data = validate_and_standardize_dataset(data_dict) if validate else data_dict
     n = data["obs"].shape[0]
 
     if buffer_size is not None and buffer_size < n:

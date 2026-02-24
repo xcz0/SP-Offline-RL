@@ -3,6 +3,7 @@ defaults:
   - algo: td3_bc
   - model: mlp_actor_critic
   - data: parquet_sp
+  - sim_eval: default
   - logger: tensorboard
   - _self_
 
@@ -13,6 +14,7 @@ resume_id: null
 watch: false
 buffer_size: null
 checkpoint_path: ${oc.env:SPRL_CHECKPOINT_PATH,''}
+eval_mode: auto
 
 train:
   epoch: 200

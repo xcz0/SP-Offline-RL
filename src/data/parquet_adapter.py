@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any
 
 import numpy as np
+import pyarrow as pa
 import pyarrow.parquet as pq
 
 from src.core.types import DatasetDict
@@ -19,32 +19,75 @@ class ParquetOfflineDatasetAdapter(OfflineDatasetAdapter):
         self.path = Path(path)
         self.columns = columns
 
-    def _stack_column(self, table: dict[str, Any], name: str) -> np.ndarray:
-        raw = table[name]
-        # supports list/array object columns.
-        return np.asarray(raw.tolist(), dtype=np.float32)
+    def _required_column_name(self, key: str) -> str:
+        value = self.columns.get(key)
+        if not value:
+            raise ValueError(f"Column mapping for '{key}' is required.")
+        return value
+
+    def _scalar_column(self, table: pa.Table, name: str, dtype: np.dtype) -> np.ndarray:
+        return np.asarray(table[name].to_numpy(zero_copy_only=False), dtype=dtype)
+
+    def _stack_column(self, table: pa.Table, name: str) -> np.ndarray:
+        column = table[name].combine_chunks()
+        if pa.types.is_fixed_size_list(column.type):
+            values = np.asarray(
+                column.values.to_numpy(zero_copy_only=False), dtype=np.float32
+            )
+            return values.reshape(len(column), int(column.type.list_size))
+
+        if pa.types.is_list(column.type):
+            offsets = np.asarray(column.offsets.to_numpy(zero_copy_only=False))
+            row_lengths = np.diff(offsets)
+            if row_lengths.size == 0:
+                return np.empty((len(column), 0), dtype=np.float32)
+            if np.all(row_lengths == row_lengths[0]):
+                values = np.asarray(
+                    column.values.to_numpy(zero_copy_only=False), dtype=np.float32
+                )
+                return values.reshape(len(column), int(row_lengths[0]))
+
+        # Fallback for irregular list/object columns.
+        return np.asarray(column.to_pylist(), dtype=np.float32)
 
     def load(self) -> DatasetDict:
-        frame = pq.read_table(self.path).to_pandas()
-        cols = self.columns
-        done = frame[cols["done"]].to_numpy(dtype=np.bool_)
+        obs_col = self._required_column_name("obs")
+        act_col = self._required_column_name("act")
+        rew_col = self._required_column_name("rew")
+        done_col = self._required_column_name("done")
+        obs_next_col = self._required_column_name("obs_next")
+        terminated_col = self.columns.get("terminated")
+        truncated_col = self.columns.get("truncated")
+
+        column_names = list(
+            dict.fromkeys(
+                [
+                    obs_col,
+                    act_col,
+                    rew_col,
+                    done_col,
+                    obs_next_col,
+                    *(name for name in (terminated_col, truncated_col) if name),
+                ]
+            )
+        )
+        table = pq.read_table(self.path, columns=column_names, use_threads=True)
+        done = self._scalar_column(table, done_col, np.bool_)
 
         data: DatasetDict = {
-            "obs": self._stack_column(frame, cols["obs"]),
-            "act": self._stack_column(frame, cols["act"]),
-            "rew": frame[cols["rew"]].to_numpy(dtype=np.float32),
+            "obs": self._stack_column(table, obs_col),
+            "act": self._stack_column(table, act_col),
+            "rew": self._scalar_column(table, rew_col, np.float32),
             "done": done,
-            "obs_next": self._stack_column(frame, cols["obs_next"]),
+            "obs_next": self._stack_column(table, obs_next_col),
         }
 
-        terminated_col = cols.get("terminated")
-        truncated_col = cols.get("truncated")
         if terminated_col:
-            data["terminated"] = frame[terminated_col].to_numpy(dtype=np.bool_)
+            data["terminated"] = self._scalar_column(table, terminated_col, np.bool_)
         else:
             data["terminated"] = done
         if truncated_col:
-            data["truncated"] = frame[truncated_col].to_numpy(dtype=np.bool_)
+            data["truncated"] = self._scalar_column(table, truncated_col, np.bool_)
         else:
             data["truncated"] = np.zeros_like(done, dtype=np.bool_)
 

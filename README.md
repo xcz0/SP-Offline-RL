@@ -203,6 +203,70 @@ log/<task>/<algo>/<seed>/<timestamp>/
 - `evaluation`: 最终评估指标
 - `evaluation.extra.perf`: 当 `perf.enabled=true` 时的阶段耗时
 
+## TensorBoard 指标释义（`config_val_user3`）
+
+当运行：
+
+```bash
+python scripts/train.py --config-name config_val_user3
+```
+
+默认是 `bc_il + mlp_actor + parquet_sp_bc_train + sim_eval(user3_card1)` 的离线训练。  
+该配置下，测试阶段使用 simulator collector，把 `score_mean` 映射为 `returns_stat`，因此日志里的 `reward/returns` 实际对应仿真打分而不是 Gym 环境回报。
+
+评分核心（来自 `sim_eval.score_weights`）：
+
+```text
+score = 0.5 * retention_area + 0.3 * final_retention - 0.2 * review_count_norm
+```
+
+### `update/*`（参数更新粒度）
+
+- `update/loss`: 当前一次 BC 更新的监督损失（连续动作下为 MSE）。
+- `update/smoothed_loss/loss`: `loss` 的滑动平均（Tianshou `MovAvg`）。
+- `update/train_time`: 当前一次更新耗时（秒），包含采样与反向传播。
+- `update/update_step`: 当前更新步号。
+
+### `test/*`（单次测试采样结果）
+
+- `test/collect_speed`: 本次测试采样速度，`n_collected_steps / collect_time`。
+- `test/collect_time`: 本次测试采样耗时（秒）。
+- `test/env_step`: 触发测试时 trainer 的 `env_step`。离线训练中它是“从 buffer 采样过的样本累计量”，近似 `batch_size * update_step`，不是在线环境真实交互步数。
+- `test/lens_stat/max`: 本次测试 episode 长度最大值。
+- `test/lens_stat/mean`: 本次测试 episode 长度均值。
+- `test/lens_stat/min`: 本次测试 episode 长度最小值。
+- `test/lens_stat/std`: 本次测试 episode 长度标准差。
+- `test/n_collected_episodes`: 本次测试收集到的 episode 数。
+- `test/n_collected_steps`: 本次测试收集到的 step 数。
+- `test/returns_stat/max`: 本次测试 returns 最大值。
+- `test/returns_stat/mean`: 本次测试 returns 均值（在该配置下等价于 `score_mean`）。
+- `test/returns_stat/min`: 本次测试 returns 最小值。
+- `test/returns_stat/std`: 本次测试 returns 标准差。
+
+### `info/*`（epoch 级聚合信息）
+
+- `info/best_reward`: 历史最佳测试回报（该配置下等价最佳 `score_mean`）。
+- `info/best_reward_std`: 该最佳回报对应的标准差。
+- `info/best_score`: 历史最佳评分。
+- `info/epoch`: 当前 epoch 编号。
+- `info/test_episode`: 累计测试 episode 数。
+- `info/test_step`: 累计测试 step 数。
+- `info/timing/test_time`: 累计测试耗时（秒）。
+- `info/timing/total_time`: 训练启动后的总耗时（秒）。
+- `info/timing/train_time`: 训练时间（`total_time - test_time`）。
+- `info/timing/train_time_collect`: 训练收集阶段耗时。离线 BC 为 `0`。
+- `info/timing/train_time_update`: 累计参数更新时间。
+- `info/timing/update_speed`: 更新速度。离线 BC 通常为 `0`。
+- `info/train_episode`: 累计训练 episode 数。离线 BC 为 `0`。
+- `info/train_step`: 累计训练 step 数。离线 BC 为 `0`。
+- `info/update_step`: 累计 update 步数。
+
+### 离线 BC + simulator 下的常见现象
+
+- 会有 3 次测试记录（初始 test + 每个 epoch 末 test），所以 `train.epoch=2` 时常见 `test_step=3`。
+- `test/lens_stat/*` 常为 `1`，因为当前 simulator collector 以聚合结果构造单步统计。
+- 若 simulator 输出 `final_retention` 为 `NaN`，则 `score` 会变成 `NaN`，进而 `best_score/best_reward` 也会是 `NaN`。
+
 ## 环境变量（`.env`）
 
 `scripts/train.py`、`scripts/eval.py`、`scripts/evaluate_offline_policy.py` 会自动加载 `.env`（不覆盖已存在系统环境变量）。

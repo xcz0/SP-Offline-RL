@@ -8,7 +8,7 @@
 - `data/` is a local symlink to processed datasets; avoid committing large datasets, logs, or checkpoints.
 
 ## Build, Test, and Development Commands
-- `source .venv/bin/activate`: activate the project virtual environment before running python related command.
+- `source .venv/bin/activate`: activate the project virtual environment before running `python` command.
 - `python scripts/train.py`: run default offline training.
 - `python scripts/train.py algo=bc_il model=mlp_actor`: run training with Hydra overrides.
 - `python scripts/eval.py checkpoint_path=/abs/path/policy.pth`: evaluate a saved policy checkpoint.

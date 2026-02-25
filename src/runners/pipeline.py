@@ -38,6 +38,7 @@ from src.runners.types import (
 )
 from src.utils.hydra import as_yaml, resolve_config, resolve_device
 from src.utils.io import ensure_dir, save_json, save_text
+from src.utils.perf import PerfTracker
 
 
 def _info_stats_to_dict(stats: InfoStats) -> dict[str, Any]:
@@ -72,6 +73,13 @@ def _metrics_from_dict(metrics: dict[str, float]) -> EvalMetrics:
         test_reward_std=reward_std,
         extra=to_builtin(payload),
     )
+
+
+def _build_perf_tracker(cfg: DictConfig) -> PerfTracker:
+    perf_cfg = cfg.get("perf")
+    if perf_cfg is None:
+        return PerfTracker(enabled=False)
+    return PerfTracker(enabled=bool(perf_cfg.get("enabled", False)))
 
 
 def _persist_sim_eval_artifacts(
@@ -118,6 +126,7 @@ def train(cfg: DictConfig) -> TrainingResult:
     """Run end-to-end offline training and return typed summary metrics."""
 
     device = resolve_device(str(cfg.device))
+    perf = _build_perf_tracker(cfg)
     timestamp = datetime.datetime.now().strftime("%y%m%d-%H%M%S")
     run_name = os.path.join(_get_task_name(cfg), str(cfg.algo.name), str(cfg.seed), timestamp)
     log_path = os.path.join(str(cfg.paths.logdir), run_name)
@@ -131,7 +140,8 @@ def train(cfg: DictConfig) -> TrainingResult:
     sim_collector: SimulationEvalCollector | None = None
 
     try:
-        set_global_seed(int(cfg.seed), seed_cuda=device.startswith("cuda"))
+        with perf.time("seed"):
+            set_global_seed(int(cfg.seed), seed_cuda=device.startswith("cuda"))
         algo_name = str(cfg.algo.name)
         run_mode, use_bc_sim_eval = resolve_train_mode(cfg, algo_name)
 
@@ -140,12 +150,13 @@ def train(cfg: DictConfig) -> TrainingResult:
 
         if algo_name == "bc_il" and use_bc_sim_eval:
             require_sprwkv()
-            sim_components = prepare_bc_sim_components(
-                cfg,
-                device,
-                seed=int(cfg.seed),
-                include_train_buffer=True,
-            )
+            with perf.time("prepare_runtime"):
+                sim_components = prepare_bc_sim_components(
+                    cfg,
+                    device,
+                    seed=int(cfg.seed),
+                    include_train_buffer=True,
+                )
             if sim_components.train_buffer is None:
                 raise RuntimeError("train_buffer must be initialized for bc_il training.")
             train_buffer = sim_components.train_buffer
@@ -176,12 +187,13 @@ def train(cfg: DictConfig) -> TrainingResult:
 
             trainer_compute_score_fn = _score_fn
         else:
-            gym_components = prepare_gym_components(
-                cfg,
-                device,
-                seed=int(cfg.seed),
-                include_train_buffer=True,
-            )
+            with perf.time("prepare_runtime"):
+                gym_components = prepare_gym_components(
+                    cfg,
+                    device,
+                    seed=int(cfg.seed),
+                    include_train_buffer=True,
+                )
             if gym_components.train_buffer is None:
                 raise RuntimeError("train_buffer must be initialized for training.")
             train_buffer = gym_components.train_buffer
@@ -189,35 +201,43 @@ def train(cfg: DictConfig) -> TrainingResult:
             test_collector = Collector[CollectStats](algorithm, gym_components.test_envs)
 
         if cfg.resume_path:
-            load_policy_state(algorithm, str(cfg.resume_path), device)
+            with perf.time("load_checkpoint"):
+                load_policy_state(algorithm, str(cfg.resume_path), device)
         resolved_cfg = resolve_config(cfg) if str(cfg.logger.type) == "wandb" else None
 
-        logger_artifacts = build_logger(
-            logger_cfg=cfg.logger,
-            log_path=log_path,
-            run_name=run_name,
-            resume_id=cfg.resume_id,
-            config_dict=resolved_cfg,
-            resolved_config_path=resolved_config_path,
-        )
+        with perf.time("build_logger"):
+            logger_artifacts = build_logger(
+                logger_cfg=cfg.logger,
+                log_path=log_path,
+                run_name=run_name,
+                resume_id=cfg.resume_id,
+                config_dict=resolved_cfg,
+                resolved_config_path=resolved_config_path,
+            )
         save_best_fn = build_save_best_fn(log_path)
         checkpoint_path = str(cfg.resume_path or (Path(log_path) / "policy.pth"))
+        perf_cfg = cfg.get("perf")
+        profile_steps = bool(perf_cfg.get("profile_steps", False)) if perf_cfg is not None else False
 
         if run_mode == "watch":
-            load_policy_state(algorithm, checkpoint_path, device)
-            if sim_collector is not None:
-                sim_collector.set_epoch(int(cfg.train.epoch))
-                stats = sim_collector.collect(n_episode=1)
-                eval_metrics = _metrics_from_collect_stats(stats)
-                sim_artifacts = _persist_sim_eval_artifacts(log_path, sim_collector)
-            else:
-                _, metrics = collect_eval_metrics(
-                    test_collector,
-                    num_episodes=int(cfg.env.num_test_envs),
-                    render=float(cfg.env.render),
-                )
-                eval_metrics = _metrics_from_dict(metrics)
-                sim_artifacts = None
+            with perf.time("watch_eval"):
+                load_policy_state(algorithm, checkpoint_path, device)
+                if sim_collector is not None:
+                    sim_collector.set_epoch(int(cfg.train.epoch))
+                    stats = sim_collector.collect(n_episode=1)
+                    eval_metrics = _metrics_from_collect_stats(stats)
+                    sim_artifacts = _persist_sim_eval_artifacts(log_path, sim_collector)
+                else:
+                    _, metrics = collect_eval_metrics(
+                        test_collector,
+                        num_episodes=int(cfg.env.num_test_envs),
+                        render=float(cfg.env.render),
+                    )
+                    eval_metrics = _metrics_from_dict(metrics)
+                    sim_artifacts = None
+            perf_payload = perf.as_dict()
+            if perf_payload:
+                eval_metrics.extra["perf"] = perf_payload
 
             result = TrainingResult(
                 mode="watch",
@@ -231,36 +251,46 @@ def train(cfg: DictConfig) -> TrainingResult:
             save_json(Path(log_path) / str(cfg.paths.save_metrics_filename), result.to_dict())
             return result
 
-        training_result = algorithm.run_training(
-            OfflineTrainerParams(
-                buffer=train_buffer,
-                test_collector=test_collector,
-                max_epochs=int(cfg.train.epoch),
-                epoch_num_steps=int(cfg.train.epoch_num_steps),
-                test_step_num_episodes=(1 if use_bc_sim_eval else int(cfg.env.num_test_envs)),
-                batch_size=int(cfg.train.batch_size),
-                save_best_fn=save_best_fn,
-                logger=logger_artifacts.logger,
-                test_fn=trainer_test_fn,
-                compute_score_fn=trainer_compute_score_fn,
+        with perf.time("training"):
+            training_result = algorithm.run_training(
+                OfflineTrainerParams(
+                    buffer=train_buffer,
+                    test_collector=test_collector,
+                    max_epochs=int(cfg.train.epoch),
+                    epoch_num_steps=int(cfg.train.epoch_num_steps),
+                    test_step_num_episodes=(1 if use_bc_sim_eval else int(cfg.env.num_test_envs)),
+                    batch_size=int(cfg.train.batch_size),
+                    save_best_fn=save_best_fn,
+                    logger=logger_artifacts.logger,
+                    test_fn=trainer_test_fn,
+                    compute_score_fn=trainer_compute_score_fn,
+                    verbose=profile_steps,
+                    show_progress=profile_steps,
+                )
             )
-        )
 
-        if sim_collector is not None:
-            sim_collector.set_epoch(int(cfg.train.epoch))
-            stats = sim_collector.collect(n_episode=1)
-            eval_metrics = _metrics_from_collect_stats(stats)
-            sim_artifacts = _persist_sim_eval_artifacts(log_path, sim_collector)
-        else:
-            assert gym_components is not None
-            seed_vector_env(gym_components.test_envs, int(cfg.seed))
-            _, metrics = collect_eval_metrics(
-                test_collector,
-                num_episodes=int(cfg.env.num_test_envs),
-                render=float(cfg.env.render),
-            )
-            eval_metrics = _metrics_from_dict(metrics)
-            sim_artifacts = None
+        with perf.time("post_train_eval"):
+            if sim_collector is not None:
+                sim_collector.set_epoch(int(cfg.train.epoch))
+                stats = sim_collector.collect(n_episode=1)
+                eval_metrics = _metrics_from_collect_stats(stats)
+                sim_artifacts = _persist_sim_eval_artifacts(log_path, sim_collector)
+            else:
+                assert gym_components is not None
+                seed_vector_env(gym_components.test_envs, int(cfg.seed))
+                _, metrics = collect_eval_metrics(
+                    test_collector,
+                    num_episodes=int(cfg.env.num_test_envs),
+                    render=float(cfg.env.render),
+                )
+                eval_metrics = _metrics_from_dict(metrics)
+                sim_artifacts = None
+
+        raw_training = _info_stats_to_dict(training_result)
+        perf_payload = perf.as_dict()
+        if perf_payload:
+            raw_training["perf"] = perf_payload
+            eval_metrics.extra["perf"] = perf_payload
 
         training_metrics = TrainingMetrics(
             best_reward=float(training_result.best_reward),
@@ -268,7 +298,7 @@ def train(cfg: DictConfig) -> TrainingResult:
             update_step=int(training_result.update_step),
             train_step=int(training_result.train_step),
             test_step=int(training_result.test_step),
-            raw=_info_stats_to_dict(training_result),
+            raw=raw_training,
         )
         result = TrainingResult(
             mode="train",
@@ -293,6 +323,7 @@ def evaluate(cfg: DictConfig, checkpoint_path: str | None = None) -> EvaluationR
     """Evaluate a policy checkpoint and return aggregate typed metrics."""
 
     device = resolve_device(str(cfg.device))
+    perf = _build_perf_tracker(cfg)
     algo_name = str(cfg.algo.name)
     eval_mode = resolve_eval_mode(cfg, algo_name)
     effective_checkpoint = str(checkpoint_path or cfg.get("checkpoint_path") or "")
@@ -307,26 +338,33 @@ def evaluate(cfg: DictConfig, checkpoint_path: str | None = None) -> EvaluationR
         if algo_name != "bc_il":
             raise ConfigurationError("sim eval mode currently supports only bc_il.")
         require_sprwkv()
-        set_global_seed(int(cfg.seed), seed_cuda=device.startswith("cuda"))
+        with perf.time("seed"):
+            set_global_seed(int(cfg.seed), seed_cuda=device.startswith("cuda"))
 
-        sim_components = prepare_bc_sim_components(
-            cfg,
-            device,
-            seed=int(cfg.seed),
-            include_train_buffer=False,
-        )
-        load_policy_state(sim_components.algorithm, effective_checkpoint, device)
+        with perf.time("prepare_runtime"):
+            sim_components = prepare_bc_sim_components(
+                cfg,
+                device,
+                seed=int(cfg.seed),
+                include_train_buffer=False,
+            )
+        with perf.time("load_checkpoint"):
+            load_policy_state(sim_components.algorithm, effective_checkpoint, device)
         sim_cfg = build_sim_eval_cfg(
             cfg,
             obs_norm_mean=sim_components.obs_norm_mean,
             obs_norm_var=sim_components.obs_norm_var,
         )
-        composite = evaluate_composite_with_simulator(
-            policy=sim_components.algorithm.policy,
-            sim_eval_cfg=sim_cfg,
-            action_max=float(sim_components.action_high),
-        )
+        with perf.time("sim_eval"):
+            composite = evaluate_composite_with_simulator(
+                policy=sim_components.algorithm.policy,
+                sim_eval_cfg=sim_cfg,
+                action_max=float(sim_components.action_high),
+            )
         summary = to_builtin(composite.summary)
+        perf_payload = perf.as_dict()
+        if perf_payload:
+            summary["perf"] = perf_payload
         return EvaluationResult(
             mode="sim",
             checkpoint_path=effective_checkpoint,
@@ -342,18 +380,23 @@ def evaluate(cfg: DictConfig, checkpoint_path: str | None = None) -> EvaluationR
         require_sprwkv()
         sim_cfg = build_sim_eval_cfg(cfg)
         predictor_cfg = dict(sim_cfg.get("predictor", {}))
-        replay = evaluate_replay_with_simulator(
-            data_dir=str(sim_cfg.get("data_dir", "data")),
-            predictor_model_path=str(predictor_cfg.get("model_path", "")),
-            predictor_device=str(predictor_cfg.get("device", device)),
-            predictor_dtype=str(predictor_cfg.get("dtype", "float32")),
-            user_ids=[int(v) for v in sim_cfg.get("user_ids", [])] or None,
-            cards_per_user=int(sim_cfg.get("cards_per_user", 20)),
-            min_target_occurrences=int(sim_cfg.get("min_target_occurrences", 5)),
-            warmup_mode=str(sim_cfg.get("warmup_mode", "fifth")),
-            seed=int(sim_cfg.get("seed", 0)),
-        )
+        with perf.time("replay_eval"):
+            replay = evaluate_replay_with_simulator(
+                data_dir=str(sim_cfg.get("data_dir", "data")),
+                predictor_model_path=str(predictor_cfg.get("model_path", "")),
+                predictor_device=str(predictor_cfg.get("device", device)),
+                predictor_dtype=str(predictor_cfg.get("dtype", "float32")),
+                user_ids=[int(v) for v in sim_cfg.get("user_ids", [])] or None,
+                cards_per_user=int(sim_cfg.get("cards_per_user", 20)),
+                min_target_occurrences=int(sim_cfg.get("min_target_occurrences", 5)),
+                warmup_mode=str(sim_cfg.get("warmup_mode", "fifth")),
+                seed=int(sim_cfg.get("seed", 0)),
+                eval_workers=int(sim_cfg.get("eval_workers", 1)),
+            )
         summary = to_builtin(replay.summary)
+        perf_payload = perf.as_dict()
+        if perf_payload:
+            summary["perf"] = perf_payload
         return EvaluationResult(
             mode="replay",
             checkpoint_path=None,
@@ -367,24 +410,32 @@ def evaluate(cfg: DictConfig, checkpoint_path: str | None = None) -> EvaluationR
 
     gym_components = None
     try:
-        set_global_seed(int(cfg.seed), seed_cuda=device.startswith("cuda"))
-        gym_components = prepare_gym_components(
-            cfg,
-            device,
-            seed=int(cfg.seed),
-            include_train_buffer=False,
-        )
-        load_policy_state(gym_components.algorithm, effective_checkpoint, device)
+        with perf.time("seed"):
+            set_global_seed(int(cfg.seed), seed_cuda=device.startswith("cuda"))
+        with perf.time("prepare_runtime"):
+            gym_components = prepare_gym_components(
+                cfg,
+                device,
+                seed=int(cfg.seed),
+                include_train_buffer=False,
+            )
+        with perf.time("load_checkpoint"):
+            load_policy_state(gym_components.algorithm, effective_checkpoint, device)
         collector = Collector[CollectStats](gym_components.algorithm, gym_components.test_envs)
-        _, metrics = collect_eval_metrics(
-            collector,
-            num_episodes=int(cfg.env.num_test_envs),
-            render=float(cfg.env.render),
-        )
+        with perf.time("gym_eval"):
+            _, metrics = collect_eval_metrics(
+                collector,
+                num_episodes=int(cfg.env.num_test_envs),
+                render=float(cfg.env.render),
+            )
+        eval_metrics = _metrics_from_dict(metrics)
+        perf_payload = perf.as_dict()
+        if perf_payload:
+            eval_metrics.extra["perf"] = perf_payload
         return EvaluationResult(
             mode="gym",
             checkpoint_path=effective_checkpoint,
-            evaluation=_metrics_from_dict(metrics),
+            evaluation=eval_metrics,
             sim_eval=None,
         )
     finally:

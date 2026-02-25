@@ -22,11 +22,14 @@ class ObsActBuffer:
         self._act = act
         self._size = int(obs.shape[0])
         self._rng = np.random.default_rng(seed)
+        self._workspace_obs: dict[int, np.ndarray] = {}
+        self._workspace_act: dict[int, np.ndarray] = {}
 
     def __len__(self) -> int:
         return self._size
 
     def sample(self, batch_size: int | None):
+        full_batch = batch_size == 0
         if batch_size is None:
             batch_size = self._size
         if batch_size < 0:
@@ -36,10 +39,30 @@ class ObsActBuffer:
         else:
             indices = self._rng.choice(self._size, int(batch_size), replace=True)
 
+        if indices.size == 0:
+            obs_batch = self._obs[:0]
+            act_batch = self._act[:0]
+        elif full_batch:
+            # Full-batch path returns source arrays to avoid an extra copy.
+            obs_batch = self._obs
+            act_batch = self._act
+        else:
+            size = int(indices.size)
+            obs_batch = self._workspace_obs.get(size)
+            act_batch = self._workspace_act.get(size)
+            if obs_batch is None:
+                obs_batch = np.empty((size, *self._obs.shape[1:]), dtype=self._obs.dtype)
+                self._workspace_obs[size] = obs_batch
+            if act_batch is None:
+                act_batch = np.empty((size, *self._act.shape[1:]), dtype=self._act.dtype)
+                self._workspace_act[size] = act_batch
+            np.take(self._obs, indices, axis=0, out=obs_batch)
+            np.take(self._act, indices, axis=0, out=act_batch)
+
         return (
             Batch(
-                obs=self._obs[indices],
-                act=self._act[indices],
+                obs=obs_batch,
+                act=act_batch,
                 info=Batch(),
             ),
             indices,

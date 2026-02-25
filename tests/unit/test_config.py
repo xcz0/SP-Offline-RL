@@ -12,6 +12,7 @@ def test_default_config_load_and_override() -> None:
     assert cfg.seed == 0
     assert cfg.train.epoch == 200
     assert cfg.eval_mode == "auto"
+    assert cfg.perf.eval_workers == 1
 
     data_cfg = OmegaConf.load(CONFIG_ROOT / "data" / "parquet_sp.yaml")
     assert data_cfg.columns.terminated == "terminated"

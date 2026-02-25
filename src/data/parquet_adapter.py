@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from pathlib import Path
 
 import numpy as np
@@ -9,7 +10,7 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from src.core.types import DatasetDict
-from src.data.dataset_adapter import OfflineDatasetAdapter
+from src.data.dataset_adapter import OfflineDatasetAdapter, validate_dataset_fields
 
 
 class ParquetOfflineDatasetAdapter(OfflineDatasetAdapter):
@@ -55,50 +56,24 @@ class ParquetOfflineDatasetAdapter(OfflineDatasetAdapter):
             f"Column '{name}' must be fixed_size_list or list type, got {column.type}."
         )
 
-    def load(self) -> DatasetDict:
-        obs_col = self._required_column_name("obs")
-        act_col = self._required_column_name("act")
-        rew_col = self._required_column_name("rew")
-        done_col = self._required_column_name("done")
-        obs_next_col = self._required_column_name("obs_next")
-        terminated_col = self._required_column_name("terminated")
-        truncated_col = self._required_column_name("truncated")
+    def _load_field(self, table: pa.Table, field: str, column_name: str) -> np.ndarray:
+        if field in {"obs", "act", "obs_next"}:
+            return self._stack_column(table, column_name)
+        if field in {"done", "terminated", "truncated"}:
+            return self._scalar_column(table, column_name, np.bool_)
+        if field == "rew":
+            return self._scalar_column(table, column_name, np.float32)
+        raise ValueError(f"Unsupported canonical field: {field}.")
 
-        column_names = list(
-            dict.fromkeys(
-                [
-                    obs_col,
-                    act_col,
-                    rew_col,
-                    done_col,
-                    obs_next_col,
-                    terminated_col,
-                    truncated_col,
-                ]
-            )
-        )
-        table = pq.read_table(self.path, columns=column_names, use_threads=True)
-        done = self._scalar_column(table, done_col, np.bool_)
-
-        data: DatasetDict = {
-            "obs": self._stack_column(table, obs_col),
-            "act": self._stack_column(table, act_col),
-            "rew": self._scalar_column(table, rew_col, np.float32),
-            "done": done,
-            "obs_next": self._stack_column(table, obs_next_col),
-            "terminated": self._scalar_column(table, terminated_col, np.bool_),
-            "truncated": self._scalar_column(table, truncated_col, np.bool_),
+    def load_prepared(self, fields: Sequence[str]) -> DatasetDict:
+        canonical_fields = validate_dataset_fields(fields)
+        mapped_columns = {
+            field: self._required_column_name(field)
+            for field in canonical_fields
         }
-
-        return data
-
-    def load_obs_act(self) -> DatasetDict:
-        obs_col = self._required_column_name("obs")
-        act_col = self._required_column_name("act")
-
-        column_names = list(dict.fromkeys([obs_col, act_col]))
+        column_names = list(dict.fromkeys(mapped_columns.values()))
         table = pq.read_table(self.path, columns=column_names, use_threads=True)
         return {
-            "obs": self._stack_column(table, obs_col),
-            "act": self._stack_column(table, act_col),
+            field: self._load_field(table, field, column_name)
+            for field, column_name in mapped_columns.items()
         }

@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from src.data.dataset_adapter import BC_DATA_FIELDS, RL_DATA_FIELDS
 from src.data.parquet_adapter import ParquetOfflineDatasetAdapter
 from tests.factories.dataset_factory import write_offline_parquet, write_obs_act_parquet
 
@@ -21,7 +22,7 @@ def test_parquet_adapter_load_obs_act_with_minimal_mappings(
         path=str(path),
         columns=obs_act_columns,
     )
-    data = adapter.load_obs_act()
+    data = adapter.load_prepared(fields=BC_DATA_FIELDS)
 
     assert set(data.keys()) == {"obs", "act"}
     assert data["obs"].shape == (5, 3)
@@ -48,7 +49,7 @@ def test_parquet_adapter_reads_explicit_terminated_and_truncated(
         path=str(path),
         columns=full_columns,
     )
-    data = adapter.load()
+    data = adapter.load_prepared(fields=RL_DATA_FIELDS)
 
     np.testing.assert_array_equal(
         data["terminated"],
@@ -76,7 +77,7 @@ def test_parquet_adapter_requires_terminal_mappings(
         ValueError,
         match=f"Column mapping for '{missing_key}' is required",
     ):
-        adapter.load()
+        adapter.load_prepared(fields=RL_DATA_FIELDS)
 
 
 def test_parquet_adapter_rejects_irregular_vector_column(
@@ -99,4 +100,4 @@ def test_parquet_adapter_rejects_irregular_vector_column(
 
     adapter = ParquetOfflineDatasetAdapter(path=str(path), columns=full_columns)
     with pytest.raises(ValueError, match="must contain equal-length vectors"):
-        adapter.load()
+        adapter.load_prepared(fields=RL_DATA_FIELDS)

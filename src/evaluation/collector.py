@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -17,7 +19,52 @@ from src.evaluation.types import CompositeEvalResult
 @dataclass(slots=True)
 class SimulationEvalCache:
     epoch: int
+    policy_hash: str
+    sim_cfg_hash: str
     result: CompositeEvalResult
+
+
+def _json_default(value: Any) -> Any:
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if isinstance(value, (np.generic,)):
+        return value.item()
+    return str(value)
+
+
+def _stable_hash_from_obj(value: Any) -> str:
+    payload = json.dumps(value, sort_keys=True, default=_json_default)
+    return hashlib.blake2b(payload.encode("utf-8"), digest_size=16).hexdigest()
+
+
+def _policy_state_hash(policy: Any) -> str:
+    state_dict = getattr(policy, "state_dict", None)
+    if not callable(state_dict):
+        return "policy-no-state-dict"
+
+    hasher = hashlib.blake2b(digest_size=16)
+    for name, tensor in sorted(state_dict().items(), key=lambda item: item[0]):
+        hasher.update(name.encode("utf-8"))
+        shape = tuple(int(v) for v in getattr(tensor, "shape", ()))
+        hasher.update(str(shape).encode("utf-8"))
+        if not hasattr(tensor, "detach"):
+            continue
+        flat = tensor.detach().float().cpu().reshape(-1)
+        n_elem = int(flat.numel())
+        if n_elem <= 0:
+            continue
+        stride = max(1, n_elem // 16)
+        sample = flat[::stride][:16].numpy()
+        stats = np.array(
+            [
+                float(flat.mean().item()),
+                float(flat.std(unbiased=False).item()),
+            ],
+            dtype=np.float32,
+        )
+        hasher.update(sample.tobytes())
+        hasher.update(stats.tobytes())
+    return hasher.hexdigest()
 
 
 class SimulationEvalCollector:
@@ -33,6 +80,7 @@ class SimulationEvalCollector:
     ) -> None:
         self._policy = policy
         self._sim_eval_cfg = sim_eval_cfg
+        self._sim_cfg_hash = _stable_hash_from_obj(sim_eval_cfg)
         self._action_max = float(action_max)
         self._eval_every_n_epoch = max(1, int(eval_every_n_epoch))
         self._current_epoch = 0
@@ -64,12 +112,26 @@ class SimulationEvalCollector:
         count = max(1, int(n_episode or 1))
         started = time.time()
         if self._should_run_eval():
-            result = evaluate_composite_with_simulator(
-                policy=self._policy,
-                sim_eval_cfg=self._sim_eval_cfg,
-                action_max=self._action_max,
+            policy_hash = _policy_state_hash(self._policy)
+            if (
+                self._cache is not None
+                and self._cache.epoch == self._current_epoch
+                and self._cache.policy_hash == policy_hash
+                and self._cache.sim_cfg_hash == self._sim_cfg_hash
+            ):
+                result = self._cache.result
+            else:
+                result = evaluate_composite_with_simulator(
+                    policy=self._policy,
+                    sim_eval_cfg=self._sim_eval_cfg,
+                    action_max=self._action_max,
+                )
+            self._cache = SimulationEvalCache(
+                epoch=self._current_epoch,
+                policy_hash=policy_hash,
+                sim_cfg_hash=self._sim_cfg_hash,
+                result=result,
             )
-            self._cache = SimulationEvalCache(epoch=self._current_epoch, result=result)
 
         score = float("nan")
         if self._cache is not None:

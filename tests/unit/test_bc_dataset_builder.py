@@ -15,6 +15,7 @@ from src.data.bc_dataset_builder import (
     split_examples_by_card_id,
     write_bc_artifacts,
 )
+from src.data.dataset_adapter import BC_DATA_FIELDS
 from src.data.parquet_adapter import ParquetOfflineDatasetAdapter
 
 
@@ -127,7 +128,6 @@ def test_build_bc_datasets_outputs_parquet_compatible_obs_act(tmp_path: Path) ->
         path=str(train_output),
         columns={"obs": "obs", "act": "act"},
     )
-    data = adapter.load_obs_act()
+    data = adapter.load_prepared(fields=BC_DATA_FIELDS)
     assert data["obs"].shape[1] == len(CARD_FEATURE_COLUMNS)
     assert data["act"].shape[1] == 1
-

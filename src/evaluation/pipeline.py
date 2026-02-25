@@ -50,6 +50,7 @@ def evaluate_composite_with_simulator(
         "min_target_occurrences": int(cfg.get("min_target_occurrences", 5)),
         "warmup_mode": str(cfg.get("warmup_mode", "fifth")),
         "seed": int(cfg.get("seed", 0)),
+        "eval_workers": int(cfg.get("eval_workers", 1)),
     }
 
     policy_result = None

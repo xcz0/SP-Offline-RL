@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -116,6 +117,7 @@ def evaluate_policy_with_simulator(
     score_weights: dict[str, Any],
     obs_mean: list[float] | None = None,
     obs_var: list[float] | None = None,
+    eval_workers: int = 1,
 ) -> PolicyEvalResult:
     """Evaluate policy by rolling out in RWKVSrsRlEnv."""
 
@@ -140,60 +142,68 @@ def evaluate_policy_with_simulator(
         seed=seed,
     )
 
-    rows: list[dict[str, Any]] = []
+    _ = eval_workers  # Policy inference object is shared; keep per-user serial execution.
+    targets_by_user: dict[int, list[Any]] = defaultdict(list)
     for target in targets:
-        user_df = data_map[target.user_id]
-        target_df = user_df[user_df["card_id"] == target.card_id].reset_index(drop=True)
-        if target_df.empty:
-            continue
+        targets_by_user[int(target.user_id)].append(target)
+
+    rows: list[dict[str, Any]] = []
+    for user_id in sorted(targets_by_user):
+        user_data = data_map[user_id]
 
         predictor = RWKVSrsPredictor(
             model_path=predictor_model_path or None,
             device=predictor_device,
             dtype=torch_dtype,
         )
-        env = RWKVSrsRlEnv(
-            predictor=predictor,
-            parquet_df=user_df,
-            target_card_id=int(target.card_id),
-            warmup_end_day_offset=float(target.warmup_end_day_offset),
-        )
-        if hasattr(env, "prepare"):
-            env.prepare()
+        user_df = user_data.frame
+        for target in targets_by_user[user_id]:
+            target_df = user_data.get_card_frame(target.card_id)
+            if target_df is None or target_df.empty:
+                continue
 
-        obs = env.reset()
-        done = False
-        steps = 0
-        max_steps = max(1, int(target.occurrences - target.warmup_occurrence))
-        final_retention = float("nan")
+            env = RWKVSrsRlEnv(
+                predictor=predictor,
+                parquet_df=user_df,
+                target_card_id=int(target.card_id),
+                warmup_end_day_offset=float(target.warmup_end_day_offset),
+            )
+            if hasattr(env, "prepare"):
+                env.prepare()
 
-        while not done and steps < max_steps:
-            last_target_row = getattr(obs, "last_target_row", None)
-            obs_vec = _extract_obs_vector(last_target_row)
-            obs_vec = _normalize_obs_vector(obs_vec, obs_mean_arr, obs_var_arr)
-            delta_days = _policy_act_days(policy, obs_vec)
-            delta_days = _clip_delta_days(delta_days, action_max=action_max)
-            step_result = env.step(delta_days)
-            final_retention = _final_retention_from_step_result(step_result)
-            obs = step_result.observation
-            done = bool(step_result.done)
-            steps += 1
+            obs = env.reset()
+            done = False
+            steps = 0
+            max_steps = max(1, int(target.occurrences - target.warmup_occurrence))
+            final_retention = float("nan")
 
-        metrics = getattr(obs, "metrics", None)
-        retention_area = float(getattr(metrics, "retention_area", float("nan")))
-        review_count = float(getattr(metrics, "target_review_count", steps))
-        rows.append(
-            {
-                "user_id": target.user_id,
-                "card_id": target.card_id,
-                "retention_area": retention_area,
-                "final_retention": final_retention,
-                "review_count": review_count,
-                "episode_steps": float(steps),
-                "warmup_mode": warmup_mode,
-                "warmup_end_day_offset": target.warmup_end_day_offset,
-            }
-        )
+            while not done and steps < max_steps:
+                last_target_row = getattr(obs, "last_target_row", None)
+                obs_vec = _extract_obs_vector(last_target_row)
+                obs_vec = _normalize_obs_vector(obs_vec, obs_mean_arr, obs_var_arr)
+                delta_days = _policy_act_days(policy, obs_vec)
+                delta_days = _clip_delta_days(delta_days, action_max=action_max)
+                step_result = env.step(delta_days)
+                final_retention = _final_retention_from_step_result(step_result)
+                obs = step_result.observation
+                done = bool(step_result.done)
+                steps += 1
+
+            metrics = getattr(obs, "metrics", None)
+            retention_area = float(getattr(metrics, "retention_area", float("nan")))
+            review_count = float(getattr(metrics, "target_review_count", steps))
+            rows.append(
+                {
+                    "user_id": target.user_id,
+                    "card_id": target.card_id,
+                    "retention_area": retention_area,
+                    "final_retention": final_retention,
+                    "review_count": review_count,
+                    "episode_steps": float(steps),
+                    "warmup_mode": warmup_mode,
+                    "warmup_end_day_offset": target.warmup_end_day_offset,
+                }
+            )
 
     metrics_frame = pd.DataFrame(rows)
     scored_frame = add_score_column(metrics_frame, weights=score_weights)

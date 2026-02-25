@@ -57,6 +57,13 @@ def build_train_cfg(
             "watch": False,
             "buffer_size": None,
             "checkpoint_path": None,
+            "perf": {
+                "enabled": False,
+                "profile_steps": False,
+                "eval_workers": 1,
+                "pin_memory": True,
+                "prefetch_batches": 2,
+            },
             # Keep smoke tests fast: exercise trainer lifecycle with zero update steps.
             "train": {"epoch": 1, "epoch_num_steps": 0, "batch_size": 4},
             "paths": {
@@ -87,6 +94,13 @@ def build_prepare_cfg(
             "seed": 0,
             "device": "cpu",
             "buffer_size": None,
+            "perf": {
+                "enabled": False,
+                "profile_steps": False,
+                "eval_workers": 1,
+                "pin_memory": True,
+                "prefetch_batches": 2,
+            },
             "env": {"task": "SPRLTestEnv-v0", "num_test_envs": 1, "render": 0.0},
             "data": {
                 "adapter": "parquet",

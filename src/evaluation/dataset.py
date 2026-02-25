@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Sequence
 
@@ -22,6 +23,18 @@ SIM_REQUIRED_COLUMNS = (
 )
 
 
+@dataclass(slots=True)
+class UserEvalData:
+    """Pre-indexed user review rows for fast card-level lookups."""
+
+    frame: pd.DataFrame
+    card_frames: dict[int, pd.DataFrame]
+    card_counts: pd.Series
+
+    def get_card_frame(self, card_id: int) -> pd.DataFrame | None:
+        return self.card_frames.get(int(card_id))
+
+
 def _parse_user_id(path: Path) -> int | None:
     stem = path.stem
     if not stem.startswith("user_id="):
@@ -30,6 +43,24 @@ def _parse_user_id(path: Path) -> int | None:
         return int(stem.split("=", 1)[1])
     except ValueError:
         return None
+
+
+def _build_user_eval_data(frame: pd.DataFrame) -> UserEvalData:
+    sorted_frame = frame.sort_values(["card_id", "day_offset"], kind="mergesort").reset_index(
+        drop=True
+    )
+    grouped = sorted_frame.groupby("card_id", sort=False, observed=True)
+    card_frames = {
+        int(card_id): group.reset_index(drop=True)
+        for card_id, group in grouped
+    }
+    card_counts = grouped.size()
+    card_counts.index = card_counts.index.astype(np.int64)
+    return UserEvalData(
+        frame=sorted_frame,
+        card_frames=card_frames,
+        card_counts=card_counts,
+    )
 
 
 def list_processed_files(data_dir: Path) -> list[Path]:
@@ -70,18 +101,18 @@ def load_user_dataframe(path: Path) -> pd.DataFrame:
 def load_user_data_map(
     data_dir: Path,
     user_ids: Sequence[int] | None = None,
-) -> dict[int, pd.DataFrame]:
+) -> dict[int, UserEvalData]:
     files = list_processed_files(data_dir)
     selected = set(int(uid) for uid in user_ids) if user_ids else None
 
-    data_map: dict[int, pd.DataFrame] = {}
+    data_map: dict[int, UserEvalData] = {}
     for path in files:
         user_id = _parse_user_id(path)
         if user_id is None:
             continue
         if selected is not None and user_id not in selected:
             continue
-        data_map[user_id] = load_user_dataframe(path)
+        data_map[user_id] = _build_user_eval_data(load_user_dataframe(path))
 
     if not data_map:
         users_text = ",".join(str(v) for v in sorted(selected)) if selected else "ALL"
@@ -100,8 +131,14 @@ def _warmup_occurrence_from_mode(mode: str) -> int:
     raise ValueError(f"Unsupported warmup mode: {mode}. Use 'second' or 'fifth'.")
 
 
+def _coerce_user_eval_data(value: UserEvalData | pd.DataFrame) -> UserEvalData:
+    if isinstance(value, UserEvalData):
+        return value
+    return _build_user_eval_data(value)
+
+
 def sample_eval_targets(
-    user_data: dict[int, pd.DataFrame],
+    user_data: dict[int, UserEvalData | pd.DataFrame],
     cards_per_user: int,
     min_target_occurrences: int,
     warmup_mode: str,
@@ -118,8 +155,8 @@ def sample_eval_targets(
     targets: list[EvalTarget] = []
 
     for user_id in sorted(user_data):
-        df = user_data[user_id]
-        counts = df["card_id"].value_counts().sort_index()
+        dataset = _coerce_user_eval_data(user_data[user_id])
+        counts = dataset.card_counts
         eligible = counts[counts >= required_occurrence].index.to_numpy(dtype=np.int64)
         if eligible.size == 0:
             continue
@@ -128,7 +165,9 @@ def sample_eval_targets(
         chosen_set = set(int(v) for v in chosen.tolist())
 
         for card_id in sorted(chosen_set):
-            card_rows = df[df["card_id"] == card_id].reset_index(drop=True)
+            card_rows = dataset.get_card_frame(card_id)
+            if card_rows is None or card_rows.empty:
+                continue
             warmup_row = card_rows.iloc[warmup_occurrence - 1]
             targets.append(
                 EvalTarget(

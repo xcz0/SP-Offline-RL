@@ -3,26 +3,47 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Sequence
 from typing import Any
 
 from src.core.types import DatasetDict
 
+RL_DATA_FIELDS: tuple[str, ...] = (
+    "obs",
+    "act",
+    "rew",
+    "done",
+    "obs_next",
+    "terminated",
+    "truncated",
+)
+BC_DATA_FIELDS: tuple[str, ...] = ("obs", "act")
+SUPPORTED_DATA_FIELDS: tuple[str, ...] = RL_DATA_FIELDS
+
 
 class OfflineDatasetAdapter(ABC):
-    """Adapter contract: load raw dataset and return canonical fields."""
+    """Adapter contract: load selected canonical fields as numpy arrays."""
 
     @abstractmethod
-    def load(self) -> DatasetDict:
-        """Load offline dataset into canonical numpy arrays."""
+    def load_prepared(self, fields: Sequence[str]) -> DatasetDict:
+        """Load selected canonical fields into numpy arrays."""
 
-    def load_obs_act(self) -> DatasetDict:
-        """Load minimal behavior-cloning fields."""
 
-        data = self.load()
-        return {
-            "obs": data["obs"],
-            "act": data["act"],
-        }
+def validate_dataset_fields(fields: Sequence[str]) -> tuple[str, ...]:
+    """Validate selected canonical fields."""
+
+    if not fields:
+        raise ValueError("At least one dataset field must be requested.")
+
+    normalized = tuple(str(name) for name in fields)
+    unknown = sorted(set(normalized) - set(SUPPORTED_DATA_FIELDS))
+    if unknown:
+        unknown_text = ", ".join(unknown)
+        raise ValueError(
+            f"Unsupported dataset fields: {unknown_text}. "
+            f"Supported fields: {', '.join(SUPPORTED_DATA_FIELDS)}."
+        )
+    return normalized
 
 
 def build_dataset_adapter(cfg: Any) -> OfflineDatasetAdapter:

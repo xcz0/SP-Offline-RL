@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from src.runners import common as runners_common
+from src.runners import runtime_builder
 from src.runners.common import prepare_bc_sim_components, prepare_gym_components
 from tests.factories.config_factory import (
     BC_IL_ALGO_CFG,
@@ -26,8 +26,8 @@ def _mock_algorithm_builders(monkeypatch: pytest.MonkeyPatch) -> None:
     def _dummy_builder(*_args: Any, **_kwargs: Any) -> _DummyAlgorithm:
         return _DummyAlgorithm(policy=object())
 
-    monkeypatch.setattr(runners_common, "build_algorithm", _dummy_builder)
-    monkeypatch.setattr(runners_common, "build_algorithm_from_space_info", _dummy_builder)
+    monkeypatch.setattr(runtime_builder, "build_algorithm", _dummy_builder)
+    monkeypatch.setattr(runtime_builder, "build_algorithm_from_space_info", _dummy_builder)
 
 
 @pytest.mark.parametrize(

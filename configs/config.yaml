@@ -8,7 +8,7 @@ defaults:
   - _self_
 
 seed: 0
-device: auto
+device: cuda:0
 resume_path: null
 resume_id: null
 watch: false
@@ -16,10 +16,17 @@ buffer_size: null
 checkpoint_path: ${oc.env:SPRL_CHECKPOINT_PATH,''}
 eval_mode: auto
 
+compile:
+  enabled: true
+  mode: reduce-overhead
+  backend: inductor
+  dynamic: false
+  fullgraph: false
+
 perf:
   enabled: false
   profile_steps: false
-  eval_workers: 1
+  eval_workers: auto
   pin_memory: true
   prefetch_batches: 2
 

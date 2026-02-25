@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+from typing import Final
+
 from src.core.exceptions import ConfigurationError
+
+AUTO_DEVICE_SENTINELS: Final[frozenset[str]] = frozenset({"", "auto"})
 
 
 def require_sprwkv():
@@ -19,3 +23,16 @@ def require_sprwkv():
 
     return RWKVSrsPredictor, RWKVSrsRlEnv, RWKVSrsSimulator
 
+
+def resolve_predictor_device(device: str) -> str:
+    """Normalize predictor device string to a concrete torch device."""
+
+    raw = str(device).strip()
+    normalized = raw.lower()
+    if normalized in AUTO_DEVICE_SENTINELS:
+        import torch
+
+        return "cuda:0" if torch.cuda.is_available() else "cpu"
+    if normalized == "cuda":
+        return "cuda:0"
+    return raw

@@ -14,6 +14,7 @@ from tianshou.env import BaseVectorEnv, DummyVectorEnv, SubprocVectorEnv
 from tianshou.utils.space_info import ActionSpaceInfo, ObservationSpaceInfo, SpaceInfo
 
 from src.algos.registry import get_algo_factory
+from src.core.compile import build_compile_config, compile_model_bundle
 from src.core.types import DatasetDict
 from src.data.obs_act_buffer import ObsActBuffer
 from src.models.registry import get_model_factory
@@ -59,6 +60,7 @@ def build_algorithm(cfg: DictConfig, env: Any, device: str):
     space_info = SpaceInfo.from_env(env)
     model_factory = get_model_factory(str(cfg.model.name))
     model_bundle = model_factory.build(cfg.model, space_info, device)
+    model_bundle = compile_model_bundle(model_bundle, build_compile_config(cfg))
     algo_factory = get_algo_factory(str(cfg.algo.name))
     return algo_factory.build(cfg.algo, env, model_bundle, device)
 
@@ -133,6 +135,7 @@ def build_algorithm_from_space_info(
 
     model_factory = get_model_factory(str(cfg.model.name))
     model_bundle = model_factory.build(cfg.model, space_info, device)
+    model_bundle = compile_model_bundle(model_bundle, build_compile_config(cfg))
     algo_factory = get_algo_factory(str(cfg.algo.name))
     env_like = _StaticSpaceEnv(
         observation_space=Box(

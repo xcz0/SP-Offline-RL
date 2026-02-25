@@ -33,7 +33,7 @@ BC_REPORT_PATH="${BC_REPORT_PATH:-data/bc_dataset_report.json}"
 VAL_RATIO="${VAL_RATIO:-0.1}"
 
 SEED="${SEED:-0}"
-DEVICE="${DEVICE:-auto}"
+DEVICE="${DEVICE:-cuda:0}"
 EPOCHS="${EPOCHS:-50}"
 EPOCH_NUM_STEPS="${EPOCH_NUM_STEPS:-2000}"
 BATCH_SIZE="${BATCH_SIZE:-256}"
@@ -83,14 +83,9 @@ if [[ "$SIM_EVAL_ENABLED" != "true" ]]; then
 fi
 
 if [[ "$DEVICE" == "auto" ]]; then
-  PREDICTOR_DEVICE="$(python - <<'PY'
-import torch
-print("cuda" if torch.cuda.is_available() else "cpu")
-PY
-)"
-else
-  PREDICTOR_DEVICE="$DEVICE"
+  die "DEVICE=auto is no longer supported. Use an explicit device such as cuda:0 or cpu."
 fi
+PREDICTOR_DEVICE="$DEVICE"
 
 if [[ -n "$USER_IDS" ]]; then
   SIM_USER_IDS_LIST="[$USER_IDS]"

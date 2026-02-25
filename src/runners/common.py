@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import torch
@@ -10,6 +11,27 @@ from tianshou.data import Collector, CollectStats
 
 from src.core.exceptions import ConfigurationError
 from src.logging.metrics import collect_stats_to_metrics
+
+
+def _resolve_eval_workers(value: Any) -> int:
+    default_workers = max(1, int(os.cpu_count() or 1))
+    if value is None:
+        return default_workers
+
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"", "auto"}:
+            return default_workers
+
+    try:
+        workers = int(value)
+    except (TypeError, ValueError) as exc:
+        raise ConfigurationError(
+            f"perf.eval_workers must be an integer or 'auto', got: {value!r}"
+        ) from exc
+    if workers <= 0:
+        return default_workers
+    return workers
 
 
 def build_sim_eval_cfg(
@@ -29,10 +51,8 @@ def build_sim_eval_cfg(
         raise ConfigurationError("sim_eval config must resolve to a dictionary.")
 
     perf_cfg = cfg.get("perf")
-    if perf_cfg is not None:
-        sim_cfg["eval_workers"] = int(perf_cfg.get("eval_workers", 1))
-    else:
-        sim_cfg.setdefault("eval_workers", 1)
+    perf_workers = perf_cfg.get("eval_workers") if perf_cfg is not None else None
+    sim_cfg["eval_workers"] = _resolve_eval_workers(perf_workers)
 
     if obs_norm_mean is not None:
         sim_cfg["obs_norm_mean"] = obs_norm_mean

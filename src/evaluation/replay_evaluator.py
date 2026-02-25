@@ -12,7 +12,7 @@ import pandas as pd
 
 from src.core.exceptions import ConfigurationError
 from src.evaluation.dataset import UserEvalData, load_user_data_map, sample_eval_targets
-from src.evaluation.deps import require_sprwkv
+from src.evaluation.deps import require_sprwkv, resolve_predictor_device
 from src.evaluation.types import EvalTarget, ReplayEvalResult
 
 
@@ -213,6 +213,7 @@ def evaluate_replay_with_simulator(
     """Replay evaluation by following ground-truth review schedule per target card."""
 
     RWKVSrsPredictor, RWKVSrsRlEnv, _ = require_sprwkv()
+    resolved_predictor_device = resolve_predictor_device(predictor_device)
     torch_dtype = _resolve_torch_dtype(predictor_dtype)
     data_map = load_user_data_map(data_dir=Path(data_dir), user_ids=user_ids)
     targets = sample_eval_targets(
@@ -242,7 +243,7 @@ def evaluate_replay_with_simulator(
                     RWKVSrsPredictor=RWKVSrsPredictor,
                     RWKVSrsRlEnv=RWKVSrsRlEnv,
                     predictor_model_path=predictor_model_path,
-                    predictor_device=predictor_device,
+                    predictor_device=resolved_predictor_device,
                     torch_dtype=torch_dtype,
                 )
                 for user_id in sorted(targets_by_user)
@@ -260,7 +261,7 @@ def evaluate_replay_with_simulator(
                 RWKVSrsPredictor=RWKVSrsPredictor,
                 RWKVSrsRlEnv=RWKVSrsRlEnv,
                 predictor_model_path=predictor_model_path,
-                predictor_device=predictor_device,
+                predictor_device=resolved_predictor_device,
                 torch_dtype=torch_dtype,
             )
             final_rows.extend(user_final)

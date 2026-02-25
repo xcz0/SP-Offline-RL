@@ -13,7 +13,7 @@ from tianshou.data import Batch
 from src.core.exceptions import ConfigurationError
 from src.data.bc_dataset_builder import CARD_FEATURE_COLUMNS
 from src.evaluation.dataset import load_user_data_map, sample_eval_targets
-from src.evaluation.deps import require_sprwkv
+from src.evaluation.deps import require_sprwkv, resolve_predictor_device
 from src.evaluation.scoring import add_score_column, summarize_scored_metrics
 from src.evaluation.types import PolicyEvalResult
 
@@ -124,6 +124,7 @@ def evaluate_policy_with_simulator(
     """Evaluate policy by rolling out in RWKVSrsRlEnv."""
 
     RWKVSrsPredictor, RWKVSrsRlEnv, _ = require_sprwkv()
+    resolved_predictor_device = resolve_predictor_device(predictor_device)
     torch_dtype = _resolve_torch_dtype(predictor_dtype)
     data_map = load_user_data_map(data_dir=Path(data_dir), user_ids=user_ids)
     obs_mean_arr = (
@@ -155,7 +156,7 @@ def evaluate_policy_with_simulator(
 
         predictor = RWKVSrsPredictor(
             model_path=predictor_model_path or None,
-            device=predictor_device,
+            device=resolved_predictor_device,
             dtype=torch_dtype,
         )
         user_df = user_data.frame

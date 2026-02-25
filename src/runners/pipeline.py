@@ -86,9 +86,18 @@ def _build_perf_tracker(cfg: DictConfig) -> PerfTracker:
 
 
 def _resolve_device(device: str) -> str:
-    if device == "auto":
-        return "cuda" if torch.cuda.is_available() else "cpu"
-    return device
+    normalized = str(device).strip().lower()
+    if normalized in {"", "auto"}:
+        raise ConfigurationError(
+            "device must be explicit. Use one of: cpu, cuda, cuda:0 (single GPU)."
+        )
+    try:
+        torch.device(normalized)
+    except (TypeError, RuntimeError, ValueError) as exc:
+        raise ConfigurationError(
+            f"Unsupported device '{device}'. Use a valid torch device string."
+        ) from exc
+    return normalized
 
 
 def _save_text(path: str | Path, text: str) -> None:

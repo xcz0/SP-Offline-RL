@@ -31,17 +31,19 @@ def test_schema_fail_on_length_mismatch() -> None:
         validate_and_standardize_dataset(data)
 
 
-def test_schema_fail_on_missing_required() -> None:
+@pytest.mark.parametrize(
+    "missing_fields",
+    [
+        pytest.param(("obs_next",), id="missing-obs-next"),
+        pytest.param(("terminated", "truncated"), id="missing-terminal-flags"),
+    ],
+)
+def test_schema_fail_on_missing_required_fields(
+    missing_fields: tuple[str, ...],
+) -> None:
     data = _sample_data()
-    data.pop("obs_next")
-    with pytest.raises(DataValidationError):
-        validate_and_standardize_dataset(data)
-
-
-def test_schema_fail_on_missing_terminated_truncated() -> None:
-    data = _sample_data()
-    data.pop("terminated")
-    data.pop("truncated")
+    for field in missing_fields:
+        data.pop(field)
     with pytest.raises(DataValidationError):
         validate_and_standardize_dataset(data)
 

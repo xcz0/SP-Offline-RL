@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from dotenv import load_dotenv
+
 from src.evaluation.replay_evaluator import evaluate_replay_with_simulator
 
 load_dotenv(override=False)
@@ -52,7 +53,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--device",
         type=str,
-        default="cpu",
+        default="cuda",
         help="Predictor device (cpu/cuda/cuda:0...).",
     )
     parser.add_argument(

@@ -46,10 +46,17 @@ def _parse_user_id(path: Path) -> int | None:
 
 
 def _build_user_eval_data(frame: pd.DataFrame) -> UserEvalData:
-    sorted_frame = frame.sort_values(["card_id", "day_offset"], kind="mergesort").reset_index(
+    # Simulator warmup iterates rows sequentially and expects global temporal order.
+    global_sort_cols = ["review_th"] if "review_th" in frame.columns else ["day_offset"]
+    global_sorted_frame = frame.sort_values(global_sort_cols, kind="mergesort").reset_index(
         drop=True
     )
-    grouped = sorted_frame.groupby("card_id", sort=False, observed=True)
+
+    # Card-level sampling statistics still require per-card chronological ordering.
+    per_card_sorted = frame.sort_values(["card_id", "day_offset"], kind="mergesort").reset_index(
+        drop=True
+    )
+    grouped = per_card_sorted.groupby("card_id", sort=False, observed=True)
     card_frames = {
         int(card_id): group.reset_index(drop=True)
         for card_id, group in grouped
@@ -57,7 +64,7 @@ def _build_user_eval_data(frame: pd.DataFrame) -> UserEvalData:
     card_counts = grouped.size()
     card_counts.index = card_counts.index.astype(np.int64)
     return UserEvalData(
-        frame=sorted_frame,
+        frame=global_sorted_frame,
         card_frames=card_frames,
         card_counts=card_counts,
     )

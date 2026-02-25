@@ -73,6 +73,8 @@ def _policy_act_days(policy: Any, obs_vector: np.ndarray) -> float:
     batch = Batch(obs=obs_vector[None, :], info=Batch())
     output = policy(batch)
     act = getattr(output, "act", output)
+    if hasattr(act, "detach"):
+        act = act.detach().cpu().numpy()
     arr = np.asarray(act, dtype=np.float32).reshape(-1)
     if arr.size == 0:
         raise ConfigurationError("Policy returned empty action output.")
@@ -164,7 +166,8 @@ def evaluate_policy_with_simulator(
 
             env = RWKVSrsRlEnv(
                 predictor=predictor,
-                parquet_df=user_df,
+                # Keep full feature columns for BC observation extraction.
+                background_rows=user_df.to_dict("records"),
                 target_card_id=int(target.card_id),
                 warmup_end_day_offset=float(target.warmup_end_day_offset),
             )

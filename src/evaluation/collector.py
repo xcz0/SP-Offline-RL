@@ -85,6 +85,10 @@ class SimulationEvalCollector:
         self._eval_every_n_epoch = max(1, int(eval_every_n_epoch))
         self._current_epoch = 0
         self._cache: SimulationEvalCache | None = None
+        # Keep parity with Tianshou Collector bookkeeping fields.
+        self.collect_time: float = 0.0
+        self.collect_step: int = 0
+        self.collect_episode: int = 0
 
     @property
     def latest_result(self) -> CompositeEvalResult | None:
@@ -99,6 +103,9 @@ class SimulationEvalCollector:
         _ = reset_buffer
         if reset_stats:
             self._cache = None
+            self.collect_time = 0.0
+            self.collect_step = 0
+            self.collect_episode = 0
 
     def _should_run_eval(self) -> bool:
         if self._cache is None:
@@ -140,6 +147,9 @@ class SimulationEvalCollector:
         returns = np.full(count, score, dtype=np.float32)
         lens = np.ones(count, dtype=np.int64)
         collect_time = max(1e-8, time.time() - started)
+        self.collect_time += collect_time
+        self.collect_step += int(count)
+        self.collect_episode += int(count)
         return CollectStats(
             n_collected_episodes=count,
             n_collected_steps=count,

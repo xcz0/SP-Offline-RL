@@ -67,12 +67,6 @@ def _evaluate_replay_for_user(
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     final_rows: list[dict[str, Any]] = []
     traj_rows: list[dict[str, Any]] = []
-    predictor = RWKVSrsPredictor(
-        model_path=predictor_model_path or None,
-        device=predictor_device,
-        dtype=torch_dtype,
-    )
-
     for target in user_targets:
         target_df = user_data.get_card_frame(target.card_id)
         if target_df is None or target_df.empty:
@@ -94,8 +88,34 @@ def _evaluate_replay_for_user(
         def _active_idx() -> int:
             return min(cursor_idx, planned_len - 1)
 
-        def _rating_generator(*_args, **_kwargs):
-            return int(planned_ratings[_active_idx()])
+        predictor = RWKVSrsPredictor(
+            model_path=predictor_model_path or None,
+            device=predictor_device,
+            dtype=torch_dtype,
+        )
+
+        class _ReplayPredictorProxy:
+            def __init__(self, base: Any, ratings: np.ndarray) -> None:
+                self._base = base
+                self._ratings = ratings
+                self._cursor = 0
+
+            def reset_state(self) -> None:
+                self._cursor = 0
+                self._base.reset_state()
+
+            def sample_rating(self, query_row: dict[str, Any], generator: Any = None):
+                _ = generator
+                idx = min(self._cursor, len(self._ratings) - 1)
+                rating = int(self._ratings[idx])
+                self._cursor += 1
+                query_out = self._base.predict_query(query_row)
+                return rating, query_out
+
+            def __getattr__(self, name: str) -> Any:
+                return getattr(self._base, name)
+
+        replay_predictor = _ReplayPredictorProxy(predictor, planned_ratings)
 
         def _duration_fn(*_args, **_kwargs):
             return float(planned_durations[_active_idx()])
@@ -104,11 +124,10 @@ def _evaluate_replay_for_user(
             return float(planned_states[_active_idx()])
 
         env = RWKVSrsRlEnv(
-            predictor=predictor,
+            predictor=replay_predictor,
             parquet_df=user_data.frame,
             target_card_id=int(target.card_id),
             warmup_end_day_offset=float(target.warmup_end_day_offset),
-            rating_generator=_rating_generator,
             duration_fn=_duration_fn,
             state_fn=_state_fn,
         )

@@ -16,6 +16,13 @@ buffer_size: null
 checkpoint_path: ${oc.env:SPRL_CHECKPOINT_PATH,''}
 eval_mode: auto
 
+perf:
+  enabled: false
+  profile_steps: false
+  eval_workers: 1
+  pin_memory: true
+  prefetch_batches: 2
+
 train:
   epoch: 200
   epoch_num_steps: 5000

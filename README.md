@@ -111,6 +111,21 @@ SPRL_PREDICTOR_MODEL_PATH=/abs/path/predictor_weights.pth
 - 训练中会基于综合分数选 best checkpoint：  
   `0.5*retention_area + 0.3*final_retention - 0.2*review_count_norm`
 
+## 性能配置
+
+`configs/config.yaml` 新增 `perf` 配置组：
+
+- `perf.enabled`: 是否记录 train/eval 分阶段耗时到结果 JSON
+- `perf.eval_workers`: simulator replay 评估并行 worker 数
+- `perf.profile_steps` / `pin_memory` / `prefetch_batches`: 预留性能调优开关
+
+手工性能基准脚本：
+
+```bash
+source .venv/bin/activate
+python tests/perf/benchmark_pipeline.py
+```
+
 ## 测试
 
 ```bash

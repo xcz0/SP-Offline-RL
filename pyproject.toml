@@ -17,7 +17,12 @@ dependencies = [
     "wandb",
     "optuna",
     "polars",
+    "sprwkv",
 ]
+
+[tool.uv.sources]
+sprwkv = { path = "../SPRWKV", editable = true }
+
 
 [dependency-groups]
 dev = ["ipykernel", "pytest", "ruff", "mypy"]

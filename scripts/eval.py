@@ -8,7 +8,7 @@ import hydra
 from omegaconf import DictConfig, OmegaConf
 
 from src.core.exceptions import ConfigurationError
-from src.runners.evaluator import run_evaluation
+from src.runners import evaluate
 from src.utils.env import load_env_file
 
 load_env_file()
@@ -25,8 +25,8 @@ def main(cfg: DictConfig) -> None:
             "Example: python scripts/eval.py checkpoint_path=/path/policy.pth"
         )
 
-    result = run_evaluation(cfg, str(checkpoint or ""))
-    print(json.dumps(result, indent=2, ensure_ascii=False))
+    result = evaluate(cfg, str(checkpoint or ""))
+    print(json.dumps(result.to_dict(), indent=2, ensure_ascii=False))
 
 
 if __name__ == "__main__":

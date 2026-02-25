@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 import gymnasium as gym
 import numpy as np
 import torch
 from gymnasium.spaces import Box
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 from tianshou.data import Collector, CollectStats, ReplayBuffer
 from tianshou.env import BaseVectorEnv, DummyVectorEnv, SubprocVectorEnv, VectorEnvNormObs
 from tianshou.utils.space_info import ActionSpaceInfo, ObservationSpaceInfo, SpaceInfo
 
 from src.algos.registry import get_algo_factory
+from src.core.exceptions import ConfigurationError
+from src.core.seed import seed_vector_env
 from src.core.types import DatasetDict
 from src.data.dataset_adapter import build_dataset_adapter
 from src.data.obs_act_buffer import ObsActBuffer
@@ -26,6 +29,29 @@ from src.data.schema import (
 from src.data.transforms import normalize_obs_array, normalize_obs_in_replay_buffer
 from src.logging.metrics import collect_stats_to_metrics
 from src.models.registry import get_model_factory
+
+
+@dataclass(slots=True)
+class BCSimComponents:
+    """Prepared components for bc_il simulator-backed train/eval flow."""
+
+    obs_act_data: DatasetDict
+    algorithm: Any
+    action_low: float
+    action_high: float
+    obs_norm_mean: list[float] | None
+    obs_norm_var: list[float] | None
+    train_buffer: ObsActBuffer | None
+
+
+@dataclass(slots=True)
+class GymComponents:
+    """Prepared components for gym-backed train/eval flow."""
+
+    env: Any
+    test_envs: BaseVectorEnv
+    algorithm: Any
+    train_buffer: ReplayBuffer | ObsActBuffer | None
 
 
 def make_test_envs(task: str, num_test_envs: int) -> BaseVectorEnv:
@@ -214,6 +240,130 @@ def apply_obs_norm_to_obs_act_data(
     normalized_envs = VectorEnvNormObs(test_envs, update_obs_rms=False)
     normalized_envs.set_obs_rms(obs_rms)
     return normalized_data, normalized_envs
+
+
+def build_sim_eval_cfg(
+    cfg: DictConfig,
+    *,
+    obs_norm_mean: list[float] | None = None,
+    obs_norm_var: list[float] | None = None,
+) -> dict[str, Any]:
+    """Resolve simulator-eval config and inject optional obs normalization stats."""
+
+    sim_eval_cfg = cfg.get("sim_eval")
+    if sim_eval_cfg is None:
+        raise ConfigurationError("sim_eval config is required for simulator mode.")
+
+    sim_cfg = OmegaConf.to_container(sim_eval_cfg, resolve=True)
+    if not isinstance(sim_cfg, dict):
+        raise ConfigurationError("sim_eval config must resolve to a dictionary.")
+
+    if obs_norm_mean is not None:
+        sim_cfg["obs_norm_mean"] = obs_norm_mean
+        sim_cfg["obs_norm_var"] = obs_norm_var
+    return sim_cfg
+
+
+def prepare_bc_sim_components(
+    cfg: DictConfig,
+    device: str,
+    *,
+    seed: int,
+    include_train_buffer: bool,
+) -> BCSimComponents:
+    """Prepare bc_il data/model stack for simulator-backed flows."""
+
+    obs_act_data = build_obs_act_dataset_from_cfg(cfg, env=None)
+    obs_norm_mean: list[float] | None = None
+    obs_norm_var: list[float] | None = None
+    if bool(cfg.data.obs_norm):
+        normalized_obs, obs_rms = normalize_obs_array(obs_act_data["obs"])
+        obs_act_data = dict(obs_act_data)
+        obs_act_data["obs"] = normalized_obs
+        obs_norm_mean = np.asarray(obs_rms.mean, dtype=np.float32).tolist()
+        obs_norm_var = np.asarray(obs_rms.var, dtype=np.float32).tolist()
+
+    action_low, action_high = infer_action_bounds_from_dataset(obs_act_data["act"])
+    space_info, action_space = build_space_info_from_obs_act(
+        obs_act_data,
+        action_low=action_low,
+        action_high=action_high,
+    )
+    algorithm = build_algorithm_from_space_info(
+        cfg,
+        space_info=space_info,
+        action_space=action_space,
+        device=device,
+    )
+    train_buffer = (
+        build_obs_act_buffer_from_dataset(obs_act_data, seed=seed)
+        if include_train_buffer
+        else None
+    )
+    return BCSimComponents(
+        obs_act_data=obs_act_data,
+        algorithm=algorithm,
+        action_low=action_low,
+        action_high=action_high,
+        obs_norm_mean=obs_norm_mean,
+        obs_norm_var=obs_norm_var,
+        train_buffer=train_buffer,
+    )
+
+
+def prepare_gym_components(
+    cfg: DictConfig,
+    device: str,
+    *,
+    seed: int,
+    include_train_buffer: bool,
+) -> GymComponents:
+    """Prepare gym env, test envs, algorithm, and optional train buffer."""
+
+    env = gym.make(str(cfg.env.task))
+    algo_name = str(cfg.algo.name)
+    train_buffer: ReplayBuffer | ObsActBuffer | None = None
+    obs_act_data: DatasetDict | None = None
+
+    if include_train_buffer:
+        if algo_name == "bc_il":
+            obs_act_data = build_obs_act_dataset_from_cfg(cfg, env)
+            train_buffer = build_obs_act_buffer_from_dataset(obs_act_data, seed)
+        else:
+            train_buffer = build_replay_buffer_from_cfg(
+                cfg,
+                env,
+                cfg.get("buffer_size"),
+            )
+
+    test_envs = make_test_envs(str(cfg.env.task), int(cfg.env.num_test_envs))
+    if bool(cfg.data.obs_norm):
+        if algo_name == "bc_il":
+            if obs_act_data is None:
+                obs_act_data = build_obs_act_dataset_from_cfg(cfg, env)
+            obs_act_data, test_envs = apply_obs_norm_to_obs_act_data(obs_act_data, test_envs)
+            if include_train_buffer:
+                train_buffer = build_obs_act_buffer_from_dataset(obs_act_data, seed)
+        else:
+            replay_for_norm = train_buffer
+            if replay_for_norm is None:
+                replay_for_norm = build_replay_buffer_from_cfg(
+                    cfg,
+                    env,
+                    cfg.get("buffer_size"),
+                )
+            replay_for_norm, test_envs = apply_obs_norm(replay_for_norm, test_envs)
+            if include_train_buffer:
+                train_buffer = replay_for_norm
+
+    seed_vector_env(test_envs, seed)
+    algorithm = build_algorithm(cfg, env, device)
+    return GymComponents(
+        env=env,
+        test_envs=test_envs,
+        algorithm=algorithm,
+        train_buffer=train_buffer,
+    )
 
 
 def load_policy_state(algorithm: Any, checkpoint_path: str, device: str) -> None:

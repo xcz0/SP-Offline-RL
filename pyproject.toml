@@ -16,6 +16,7 @@ dependencies = [
     "torch",
     "wandb",
     "optuna",
+    "polars",
 ]
 
 [dependency-groups]

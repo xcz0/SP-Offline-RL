@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from tianshou.algorithm import TD3BC
+from tianshou.algorithm.imitation.td3_bc import TD3BC
 from tianshou.algorithm.modelfree.ddpg import ContinuousDeterministicPolicy
 from tianshou.algorithm.optim import AdamOptimizerFactory
 from tianshou.exploration import GaussianNoise

@@ -115,5 +115,12 @@ SPRL_PREDICTOR_MODEL_PATH=/abs/path/predictor_weights.pth
 
 ```bash
 source .venv/bin/activate
+# 快速反馈（仅 unit）
+python -m pytest -q -m "not integration"
+
+# 全量（unit + integration）
 python -m pytest -q
+
+# 仅 integration 冒烟
+python -m pytest -q -m integration
 ```

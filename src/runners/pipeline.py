@@ -12,9 +12,11 @@ from typing import Any
 import torch
 from omegaconf import DictConfig, OmegaConf
 from tianshou.data import Collector, CollectStats
-from tianshou.trainer import InfoStats, OfflineTrainerParams
+from tianshou.data.stats import InfoStats
+from tianshou.trainer import OfflineTrainerParams
 
 from src.core.exceptions import ConfigurationError
+from src.core.perf import PerfTracker
 from src.core.seed import set_global_seed
 from src.evaluation.collector import SimulationEvalCollector
 from src.evaluation.deps import require_sprwkv
@@ -28,7 +30,10 @@ from src.runners.common import (
     load_policy_state,
 )
 from src.runners.mode import resolve_eval_mode, resolve_train_mode
-from src.runners.runtime_builder import prepare_bc_sim_components, prepare_gym_components
+from src.runners.runtime_builder import (
+    prepare_bc_sim_components,
+    prepare_gym_components,
+)
 from src.runners.types import (
     EvalMetrics,
     EvaluationResult,
@@ -37,7 +42,6 @@ from src.runners.types import (
     TrainingResult,
     to_builtin,
 )
-from src.utils.perf import PerfTracker
 
 
 def _info_stats_to_dict(stats: InfoStats) -> dict[str, Any]:
@@ -145,7 +149,9 @@ def train(cfg: DictConfig) -> TrainingResult:
     device = _resolve_device(str(cfg.device))
     perf = _build_perf_tracker(cfg)
     timestamp = datetime.datetime.now().strftime("%y%m%d-%H%M%S")
-    run_name = os.path.join(_get_task_name(cfg), str(cfg.algo.name), str(cfg.seed), timestamp)
+    run_name = os.path.join(
+        _get_task_name(cfg), str(cfg.algo.name), str(cfg.seed), timestamp
+    )
     log_path = os.path.join(str(cfg.paths.logdir), run_name)
     Path(log_path).mkdir(parents=True, exist_ok=True)
 
@@ -175,7 +181,9 @@ def train(cfg: DictConfig) -> TrainingResult:
                     include_train_buffer=True,
                 )
             if sim_components.train_buffer is None:
-                raise RuntimeError("train_buffer must be initialized for bc_il training.")
+                raise RuntimeError(
+                    "train_buffer must be initialized for bc_il training."
+                )
             train_buffer = sim_components.train_buffer
             algorithm = sim_components.algorithm
             sim_cfg = build_sim_eval_cfg(
@@ -215,7 +223,9 @@ def train(cfg: DictConfig) -> TrainingResult:
                 raise RuntimeError("train_buffer must be initialized for training.")
             train_buffer = gym_components.train_buffer
             algorithm = gym_components.algorithm
-            test_collector = Collector[CollectStats](algorithm, gym_components.test_envs)
+            test_collector = Collector[CollectStats](
+                algorithm, gym_components.test_envs
+            )
 
         if cfg.resume_path:
             with perf.time("load_checkpoint"):
@@ -224,7 +234,9 @@ def train(cfg: DictConfig) -> TrainingResult:
         if str(cfg.logger.type) == "wandb":
             resolved_cfg_candidate = OmegaConf.to_container(cfg, resolve=True)
             if not isinstance(resolved_cfg_candidate, dict):
-                raise ConfigurationError("Resolved config must be a dictionary for logger.")
+                raise ConfigurationError(
+                    "Resolved config must be a dictionary for logger."
+                )
             resolved_cfg = resolved_cfg_candidate
 
         with perf.time("build_logger"):
@@ -239,7 +251,11 @@ def train(cfg: DictConfig) -> TrainingResult:
         save_best_fn = build_save_best_fn(log_path)
         checkpoint_path = str(cfg.resume_path or (Path(log_path) / "policy.pth"))
         perf_cfg = cfg.get("perf")
-        profile_steps = bool(perf_cfg.get("profile_steps", False)) if perf_cfg is not None else False
+        profile_steps = (
+            bool(perf_cfg.get("profile_steps", False))
+            if perf_cfg is not None
+            else False
+        )
 
         if run_mode == "watch":
             with perf.time("watch_eval"):
@@ -270,7 +286,9 @@ def train(cfg: DictConfig) -> TrainingResult:
                 evaluation=eval_metrics,
                 sim_eval=sim_artifacts,
             )
-            _save_json(Path(log_path) / str(cfg.paths.save_metrics_filename), result.to_dict())
+            _save_json(
+                Path(log_path) / str(cfg.paths.save_metrics_filename), result.to_dict()
+            )
             return result
 
         with perf.time("training"):
@@ -280,7 +298,9 @@ def train(cfg: DictConfig) -> TrainingResult:
                     test_collector=test_collector,
                     max_epochs=int(cfg.train.epoch),
                     epoch_num_steps=int(cfg.train.epoch_num_steps),
-                    test_step_num_episodes=(1 if use_bc_sim_eval else int(cfg.env.num_test_envs)),
+                    test_step_num_episodes=(
+                        1 if use_bc_sim_eval else int(cfg.env.num_test_envs)
+                    ),
                     batch_size=int(cfg.train.batch_size),
                     save_best_fn=save_best_fn,
                     logger=logger_artifacts.logger,
@@ -331,7 +351,9 @@ def train(cfg: DictConfig) -> TrainingResult:
             evaluation=eval_metrics,
             sim_eval=sim_artifacts,
         )
-        _save_json(Path(log_path) / str(cfg.paths.save_metrics_filename), result.to_dict())
+        _save_json(
+            Path(log_path) / str(cfg.paths.save_metrics_filename), result.to_dict()
+        )
         return result
     finally:
         if logger_artifacts is not None:
@@ -423,7 +445,9 @@ def evaluate(cfg: DictConfig, checkpoint_path: str | None = None) -> EvaluationR
             mode="replay",
             checkpoint_path=None,
             evaluation=EvalMetrics(
-                test_reward_mean=float(summary.get("retention_area_mean", float("nan"))),
+                test_reward_mean=float(
+                    summary.get("retention_area_mean", float("nan"))
+                ),
                 test_reward_std=float(summary.get("retention_area_std", float("nan"))),
                 extra=summary,
             ),
@@ -443,7 +467,9 @@ def evaluate(cfg: DictConfig, checkpoint_path: str | None = None) -> EvaluationR
             )
         with perf.time("load_checkpoint"):
             load_policy_state(gym_components.algorithm, effective_checkpoint, device)
-        collector = Collector[CollectStats](gym_components.algorithm, gym_components.test_envs)
+        collector = Collector[CollectStats](
+            gym_components.algorithm, gym_components.test_envs
+        )
         with perf.time("gym_eval"):
             _, metrics = collect_eval_metrics(
                 collector,

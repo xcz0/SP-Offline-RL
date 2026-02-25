@@ -20,8 +20,7 @@ from src.models.registry import get_model_factory
 from src.runners.data_builder import (
     build_obs_act_buffer_from_prepared,
     build_replay_buffer_from_prepared,
-    load_bc_prepared_dataset,
-    load_rl_prepared_dataset,
+    load_prepared_dataset,
     obs_norm_stats_as_lists,
 )
 from src.runners.norm_builder import apply_obs_norm_to_envs
@@ -157,7 +156,7 @@ def prepare_bc_sim_components(
 ) -> BCSimComponents:
     """Prepare bc_il data/model stack for simulator-backed flows."""
 
-    prepared = load_bc_prepared_dataset(cfg, env=None)
+    prepared = load_prepared_dataset(cfg, env=None, algo_name="bc_il")
     obs_act_data = prepared.to_dict()
 
     action_low, action_high = infer_action_bounds_from_dataset(obs_act_data["act"])
@@ -206,17 +205,14 @@ def prepare_gym_components(
 
     needs_data = include_train_buffer or bool(cfg.data.obs_norm)
     if needs_data:
-        if algo_name == "bc_il":
-            prepared = load_bc_prepared_dataset(cfg, env)
-            obs_norm_mean = prepared.obs_norm_mean
-            obs_norm_var = prepared.obs_norm_var
-            if include_train_buffer:
+        prepared = load_prepared_dataset(cfg, env=env, algo_name=algo_name)
+        obs_norm_mean = prepared.obs_norm_mean
+        obs_norm_var = prepared.obs_norm_var
+        if include_train_buffer:
+            prepared_keys = set(prepared.arrays.keys())
+            if prepared_keys == {"obs", "act"}:
                 train_buffer = build_obs_act_buffer_from_prepared(prepared, seed=seed)
-        else:
-            prepared = load_rl_prepared_dataset(cfg, env)
-            obs_norm_mean = prepared.obs_norm_mean
-            obs_norm_var = prepared.obs_norm_var
-            if include_train_buffer:
+            else:
                 train_buffer = build_replay_buffer_from_prepared(
                     prepared,
                     cfg.get("buffer_size"),

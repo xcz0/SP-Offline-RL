@@ -116,6 +116,7 @@ def test_build_bc_datasets_outputs_parquet_compatible_obs_act(tmp_path: Path) ->
 
     artifacts = build_bc_datasets(input_dir=tmp_path, val_ratio=0.5, seed=0)
     assert artifacts.report["card_overlap_count"] == 0
+    assert artifacts.report["engine"] == "polars"
     assert artifacts.report["train_rows"] > 0
     assert artifacts.report["val_rows"] > 0
 
@@ -131,3 +132,25 @@ def test_build_bc_datasets_outputs_parquet_compatible_obs_act(tmp_path: Path) ->
     data = adapter.load_prepared(fields=BC_DATA_FIELDS)
     assert data["obs"].shape[1] == len(CARD_FEATURE_COLUMNS)
     assert data["act"].shape[1] == 1
+
+
+def test_build_bc_datasets_supports_legacy_engine(tmp_path: Path) -> None:
+    file_1 = tmp_path / "user_id=1.parquet"
+    frame_1 = pd.DataFrame(
+        [
+            _make_row(1, 101, 1, 0, -1.0, 11.0),
+            _make_row(1, 101, 2, 3, 3.0, 12.0),
+            _make_row(1, 102, 1, 0, -1.0, 13.0),
+            _make_row(1, 102, 2, 4, 4.0, 14.0),
+        ]
+    )
+    frame_1.to_parquet(file_1, index=False)
+
+    artifacts = build_bc_datasets(
+        input_dir=tmp_path,
+        val_ratio=0.5,
+        seed=0,
+        engine="pandas_legacy",
+    )
+    assert artifacts.report["engine"] == "pandas_legacy"
+    assert artifacts.report["train_rows"] > 0

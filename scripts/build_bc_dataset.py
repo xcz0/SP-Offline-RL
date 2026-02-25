@@ -59,6 +59,25 @@ def parse_args() -> argparse.Namespace:
         default="simulator_bound",
         help="Action clipping rule. Only simulator_bound is supported currently.",
     )
+    parser.add_argument(
+        "--engine",
+        type=str,
+        choices=["polars", "pandas_legacy"],
+        default="polars",
+        help="Dataset build engine.",
+    )
+    parser.add_argument(
+        "--stream-batch-rows",
+        type=int,
+        default=None,
+        help="Optional streaming batch rows for polars engine.",
+    )
+    parser.add_argument(
+        "--threads",
+        type=int,
+        default=None,
+        help="Optional thread count hint for polars engine.",
+    )
     return parser.parse_args()
 
 
@@ -69,6 +88,9 @@ def main() -> None:
         val_ratio=args.val_ratio,
         seed=args.seed,
         action_clip_mode=args.action_clip_mode,
+        engine=args.engine,
+        stream_batch_rows=args.stream_batch_rows,
+        threads=args.threads,
     )
     write_bc_artifacts(
         artifacts=artifacts,

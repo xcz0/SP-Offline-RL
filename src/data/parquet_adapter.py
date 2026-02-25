@@ -27,7 +27,8 @@ class ParquetOfflineDatasetAdapter(OfflineDatasetAdapter):
         return value
 
     def _scalar_column(self, table: pa.Table, name: str, dtype: np.dtype) -> np.ndarray:
-        return np.asarray(table[name].to_numpy(zero_copy_only=False), dtype=dtype)
+        out = np.asarray(table[name].to_numpy(zero_copy_only=False), dtype=dtype)
+        return np.ascontiguousarray(out)
 
     def _stack_column(self, table: pa.Table, name: str) -> np.ndarray:
         column = table[name].combine_chunks()
@@ -35,7 +36,8 @@ class ParquetOfflineDatasetAdapter(OfflineDatasetAdapter):
             values = np.asarray(
                 column.values.to_numpy(zero_copy_only=False), dtype=np.float32
             )
-            return values.reshape(len(column), int(column.type.list_size))
+            reshaped = values.reshape(len(column), int(column.type.list_size))
+            return np.ascontiguousarray(reshaped)
 
         if pa.types.is_list(column.type) or pa.types.is_large_list(column.type):
             offsets = np.asarray(column.offsets.to_numpy(zero_copy_only=False))
@@ -46,7 +48,8 @@ class ParquetOfflineDatasetAdapter(OfflineDatasetAdapter):
                 values = np.asarray(
                     column.values.to_numpy(zero_copy_only=False), dtype=np.float32
                 )
-                return values.reshape(len(column), int(row_lengths[0]))
+                reshaped = values.reshape(len(column), int(row_lengths[0]))
+                return np.ascontiguousarray(reshaped)
             raise ValueError(
                 f"Column '{name}' must contain equal-length vectors, got row lengths "
                 f"{row_lengths.min()}..{row_lengths.max()}."
@@ -72,7 +75,7 @@ class ParquetOfflineDatasetAdapter(OfflineDatasetAdapter):
             for field in canonical_fields
         }
         column_names = list(dict.fromkeys(mapped_columns.values()))
-        table = pq.read_table(self.path, columns=column_names, use_threads=True)
+        table = pq.read_table(self.path, columns=column_names, use_threads=True).combine_chunks()
         return {
             field: self._load_field(table, field, column_name)
             for field, column_name in mapped_columns.items()

@@ -8,15 +8,17 @@ import numpy as np
 from omegaconf import DictConfig
 from tianshou.data import ReplayBuffer
 
+from src.core.exceptions import ConfigurationError
 from src.core.types import PreparedDataset
-from src.data.dataset_adapter import BC_DATA_FIELDS, RL_DATA_FIELDS, build_dataset_adapter
 from src.data.obs_act_buffer import ObsActBuffer
+from src.data.pipeline import BC_DATA_FIELDS, RL_DATA_FIELDS, DataSpec
+from src.data.pipeline.loader import load_raw_arrays
 from src.data.replay_buffer_builder import build_replay_buffer
 from src.data.schema import (
     validate_against_env,
-    validate_and_standardize_dataset,
-    validate_obs_act_dataset,
+    validate_dataset_for_fields,
 )
+from src.data.spec_registry import resolve_algo_data_spec, resolve_custom_data_spec
 from src.data.transforms import normalize_obs_array, normalize_obs_with_stats
 
 
@@ -49,40 +51,39 @@ def _normalize_prepared_data(
     return normalized, obs_mean, obs_var
 
 
-def load_rl_prepared_dataset(
+def _resolve_spec_from_cfg(
     cfg: DictConfig,
-    env: Any,
-) -> PreparedDataset:
-    """Load canonical RL fields and optionally normalize observations."""
+    algo_name: str | None,
+) -> DataSpec:
+    custom_fields = cfg.data.get("fields")
+    if custom_fields is not None:
+        return resolve_custom_data_spec(
+            custom_fields,
+            name=f"custom:{algo_name or 'unknown'}",
+        )
 
-    adapter = build_dataset_adapter(cfg.data)
-    raw = adapter.load_prepared(fields=RL_DATA_FIELDS)
-    data = validate_and_standardize_dataset(raw)
-    validate_against_env(data, env)
-
-    obs_mean: np.ndarray | None = None
-    obs_var: np.ndarray | None = None
-    if bool(cfg.data.obs_norm):
-        data, obs_mean, obs_var = _normalize_prepared_data(data)
-
-    return PreparedDataset(
-        arrays=data,
-        obs_norm_mean=obs_mean,
-        obs_norm_var=obs_var,
-        meta=_build_meta(data),
-    )
+    effective_algo = str(algo_name or cfg.get("algo", {}).get("name", "")).strip()
+    if not effective_algo:
+        raise ConfigurationError(
+            "Unable to resolve dataset spec. Provide algo_name or cfg.algo.name, "
+            "or set cfg.data.fields explicitly."
+        )
+    return resolve_algo_data_spec(effective_algo)
 
 
-def load_bc_prepared_dataset(
+def load_prepared_dataset(
     cfg: DictConfig,
     env: Any | None,
+    *,
+    algo_name: str | None = None,
+    spec: DataSpec | None = None,
 ) -> PreparedDataset:
-    """Load observation/action fields for behavior cloning workflows."""
+    """Load prepared dataset arrays using unified algorithm data specs."""
 
-    adapter = build_dataset_adapter(cfg.data)
-    raw = adapter.load_prepared(fields=BC_DATA_FIELDS)
-    data = validate_obs_act_dataset(raw)
-    if env is not None:
+    resolved_spec = spec or _resolve_spec_from_cfg(cfg, algo_name=algo_name)
+    raw = load_raw_arrays(data_cfg=cfg.data, spec=resolved_spec)
+    data = validate_dataset_for_fields(raw, resolved_spec.fields)
+    if env is not None and resolved_spec.validate_env_shapes:
         validate_against_env(data, env)
 
     obs_mean: np.ndarray | None = None
@@ -94,7 +95,37 @@ def load_bc_prepared_dataset(
         arrays=data,
         obs_norm_mean=obs_mean,
         obs_norm_var=obs_var,
-        meta=_build_meta(data),
+        meta={
+            **_build_meta(data),
+            "spec": resolved_spec.name,
+            "requested_fields": list(resolved_spec.fields),
+        },
+    )
+
+
+def load_rl_prepared_dataset(
+    cfg: DictConfig,
+    env: Any,
+) -> PreparedDataset:
+    """Backward-compatible wrapper for RL canonical fields."""
+
+    return load_prepared_dataset(
+        cfg,
+        env=env,
+        spec=DataSpec(name="rl", fields=RL_DATA_FIELDS),
+    )
+
+
+def load_bc_prepared_dataset(
+    cfg: DictConfig,
+    env: Any | None,
+) -> PreparedDataset:
+    """Backward-compatible wrapper for behavior-cloning obs/act fields."""
+
+    return load_prepared_dataset(
+        cfg,
+        env=env,
+        spec=DataSpec(name="bc", fields=BC_DATA_FIELDS),
     )
 
 

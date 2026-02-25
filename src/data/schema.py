@@ -9,21 +9,21 @@ from gymnasium.spaces import Box
 
 from src.core.exceptions import DataValidationError
 from src.core.types import DatasetDict
+from src.data.pipeline.contracts import BC_DATA_FIELDS, RL_DATA_FIELDS, validate_dataset_fields
 
-REQUIRED_FIELDS = (
-    "obs",
-    "act",
-    "rew",
-    "done",
-    "obs_next",
-    "terminated",
-    "truncated",
-)
+REQUIRED_FIELDS = RL_DATA_FIELDS
+BC_REQUIRED_FIELDS = BC_DATA_FIELDS
 
-BC_REQUIRED_FIELDS = (
-    "obs",
-    "act",
-)
+_FIELD_DTYPES: dict[str, np.dtype] = {
+    "obs": np.float32,
+    "act": np.float32,
+    "rew": np.float32,
+    "done": np.bool_,
+    "obs_next": np.float32,
+    "terminated": np.bool_,
+    "truncated": np.bool_,
+}
+_VECTOR_FIELDS: frozenset[str] = frozenset({"rew", "done", "terminated", "truncated"})
 
 
 def _as_np(name: str, value: Any, dtype: np.dtype) -> np.ndarray:
@@ -53,82 +53,68 @@ def _ensure_vector(name: str, array: np.ndarray) -> np.ndarray:
     return array
 
 
-def validate_and_standardize_dataset(data: DatasetDict) -> DatasetDict:
-    """Validate required fields and return standardized dtypes/shapes."""
+def _standardize_field(name: str, value: Any) -> np.ndarray:
+    dtype = _FIELD_DTYPES.get(name)
+    if dtype is None:
+        raise DataValidationError(
+            f"Field '{name}' is not supported. "
+            f"Supported fields: {', '.join(sorted(_FIELD_DTYPES))}."
+        )
+    out = _as_np(name, value, dtype)
+    if name in _VECTOR_FIELDS:
+        out = _ensure_vector(name, out)
+    if name == "act" and out.ndim == 1:
+        out = out.reshape(-1, 1)
+    return out
 
-    standardized: DatasetDict = dict(data)
 
-    missing = set(REQUIRED_FIELDS) - set(standardized)
+def validate_dataset_for_fields(
+    data: DatasetDict,
+    fields: tuple[str, ...] | list[str],
+) -> DatasetDict:
+    """Validate and standardize a dataset for an arbitrary canonical field subset."""
+
+    requested = validate_dataset_fields(fields)
+    standardized: DatasetDict = {}
+
+    missing = set(requested) - set(data)
     if missing:
         missing_fields = ", ".join(sorted(missing))
         raise DataValidationError(
             f"Missing required dataset fields: {missing_fields}."
         )
 
-    standardized["obs"] = _as_np("obs", standardized["obs"], np.float32)
-    standardized["act"] = _as_np("act", standardized["act"], np.float32)
-    standardized["rew"] = _ensure_vector(
-        "rew", _as_np("rew", standardized["rew"], np.float32)
-    )
-    standardized["done"] = _ensure_vector(
-        "done", _as_np("done", standardized["done"], np.bool_)
-    )
-    standardized["obs_next"] = _as_np("obs_next", standardized["obs_next"], np.float32)
-    standardized["terminated"] = _ensure_vector(
-        "terminated", _as_np("terminated", standardized["terminated"], np.bool_)
-    )
-    standardized["truncated"] = _ensure_vector(
-        "truncated", _as_np("truncated", standardized["truncated"], np.bool_)
-    )
-
-    if standardized["obs"].shape != standardized["obs_next"].shape:
-        raise DataValidationError(
-            "'obs' and 'obs_next' must have exactly the same shape, "
-            f"got {standardized['obs'].shape} vs {standardized['obs_next'].shape}."
-        )
-
-    n = standardized["obs"].shape[0]
-    for field in REQUIRED_FIELDS:
-        arr = standardized[field]
-        if arr.shape[0] != n:
+    expected_size: int | None = None
+    for field in requested:
+        arr = _standardize_field(field, data[field])
+        if expected_size is None:
+            expected_size = int(arr.shape[0])
+        elif int(arr.shape[0]) != expected_size:
             raise DataValidationError(
-                f"Field '{field}' first dimension mismatch: expected {n}, got {arr.shape[0]}."
+                f"Field '{field}' first dimension mismatch: expected {expected_size}, "
+                f"got {arr.shape[0]}."
             )
+        standardized[field] = arr
 
-    if standardized["act"].ndim == 1:
-        standardized["act"] = standardized["act"].reshape(-1, 1)
+    if "obs" in standardized and "obs_next" in standardized:
+        if standardized["obs"].shape != standardized["obs_next"].shape:
+            raise DataValidationError(
+                "'obs' and 'obs_next' must have exactly the same shape, "
+                f"got {standardized['obs'].shape} vs {standardized['obs_next'].shape}."
+            )
 
     return standardized
 
 
+def validate_and_standardize_dataset(data: DatasetDict) -> DatasetDict:
+    """Validate required fields and return standardized dtypes/shapes."""
+    return validate_dataset_for_fields(data, REQUIRED_FIELDS)
+
+
 def validate_obs_act_dataset(data: DatasetDict) -> DatasetDict:
     """Validate behavior-cloning datasets with only observation/action fields."""
-
-    standardized: DatasetDict = dict(data)
-
-    missing = set(BC_REQUIRED_FIELDS) - set(standardized)
-    if missing:
-        missing_fields = ", ".join(sorted(missing))
-        raise DataValidationError(
-            f"Missing required dataset fields: {missing_fields}."
-        )
-
-    standardized["obs"] = _as_np("obs", standardized["obs"], np.float32)
-    standardized["act"] = _as_np("act", standardized["act"], np.float32)
-
-    n = standardized["obs"].shape[0]
-    if standardized["act"].shape[0] != n:
-        raise DataValidationError(
-            f"Field 'act' first dimension mismatch: expected {n}, got {standardized['act'].shape[0]}."
-        )
-
-    if standardized["act"].ndim == 1:
-        standardized["act"] = standardized["act"].reshape(-1, 1)
-
-    return {
-        "obs": standardized["obs"],
-        "act": standardized["act"],
-    }
+    standardized = validate_dataset_for_fields(data, BC_REQUIRED_FIELDS)
+    return {"obs": standardized["obs"], "act": standardized["act"]}
 
 
 def validate_against_env(data: DatasetDict, env: Any) -> None:

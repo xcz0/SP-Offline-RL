@@ -4,13 +4,15 @@ import numpy as np
 import pytest
 
 from src.data.obs_act_buffer import ObsActBuffer
+from tests.factories.dataset_factory import build_obs_act_dataset
 
 
 def test_obs_act_buffer_sample_shapes() -> None:
     n = 12
+    data = build_obs_act_dataset(n=n, seed=61)
     buffer = ObsActBuffer(
-        obs=np.random.randn(n, 3).astype(np.float32),
-        act=np.random.randn(n, 1).astype(np.float32),
+        obs=data["obs"],
+        act=data["act"],
         seed=0,
     )
 

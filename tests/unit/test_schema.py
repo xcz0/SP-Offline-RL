@@ -5,23 +5,11 @@ import pytest
 
 from src.core.exceptions import DataValidationError
 from src.data.schema import validate_and_standardize_dataset, validate_obs_act_dataset
+from tests.factories.dataset_factory import build_obs_act_dataset, build_offline_dataset
 
 
 def _sample_data(n: int = 8) -> dict[str, np.ndarray]:
-    obs = np.random.randn(n, 3).astype(np.float32)
-    act = np.random.randn(n, 1).astype(np.float32)
-    rew = np.random.randn(n).astype(np.float32)
-    done = np.zeros(n, dtype=np.bool_)
-    obs_next = np.random.randn(n, 3).astype(np.float32)
-    return {
-        "obs": obs,
-        "act": act,
-        "rew": rew,
-        "done": done,
-        "obs_next": obs_next,
-        "terminated": done.copy(),
-        "truncated": np.zeros(n, dtype=np.bool_),
-    }
+    return build_offline_dataset(n=n, seed=41)
 
 
 def test_schema_valid() -> None:
@@ -60,10 +48,8 @@ def test_schema_fail_on_missing_terminated_truncated() -> None:
 
 def test_obs_act_schema_valid_without_rewards() -> None:
     n = 10
-    data = {
-        "obs": np.random.randn(n, 3).astype(np.float32),
-        "act": np.random.randn(n).astype(np.float32),
-    }
+    data = build_obs_act_dataset(n=n, seed=42)
+    data["act"] = data["act"].reshape(n)
     out = validate_obs_act_dataset(data)
 
     assert set(out.keys()) == {"obs", "act"}
@@ -73,6 +59,6 @@ def test_obs_act_schema_valid_without_rewards() -> None:
 
 
 def test_obs_act_schema_fail_on_missing_required() -> None:
-    data = {"obs": np.random.randn(4, 3).astype(np.float32)}
+    data = {"obs": build_obs_act_dataset(n=4, seed=43)["obs"]}
     with pytest.raises(DataValidationError):
         validate_obs_act_dataset(data)

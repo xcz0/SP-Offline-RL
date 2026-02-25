@@ -7,65 +7,46 @@ import pandas as pd
 import pytest
 
 from src.data.parquet_adapter import ParquetOfflineDatasetAdapter
+from tests.factories.dataset_factory import write_offline_parquet, write_obs_act_parquet
 
 
-def _write_dataset(path: Path, n: int = 6) -> pd.DataFrame:
-    frame = pd.DataFrame(
-        {
-            "obs": [x.tolist() for x in np.random.randn(n, 3).astype(np.float32)],
-            "act": [x.tolist() for x in np.random.randn(n, 1).astype(np.float32)],
-            "rew": np.random.randn(n).astype(np.float32),
-            "done": np.array([1, 0, 0, 1, 0, 0], dtype=np.bool_),
-            "terminated": np.array([1, 0, 0, 0, 0, 1], dtype=np.bool_),
-            "truncated": np.array([0, 0, 0, 1, 0, 0], dtype=np.bool_),
-            "obs_next": [x.tolist() for x in np.random.randn(n, 3).astype(np.float32)],
-        }
-    )
-    frame.to_parquet(path, index=False)
-    return frame
-
-
-def _columns() -> dict[str, str]:
-    return {
-        "obs": "obs",
-        "act": "act",
-        "rew": "rew",
-        "done": "done",
-        "obs_next": "obs_next",
-        "terminated": "terminated",
-        "truncated": "truncated",
-    }
-
-
-def test_parquet_adapter_load_obs_act_with_minimal_mappings(tmp_path: Path) -> None:
+def test_parquet_adapter_load_obs_act_with_minimal_mappings(
+    tmp_path: Path,
+    obs_act_columns: dict[str, str],
+) -> None:
     path = tmp_path / "offline_obs_act.parquet"
-    n = 5
-    frame = pd.DataFrame(
-        {
-            "obs": [x.tolist() for x in np.random.randn(n, 3).astype(np.float32)],
-            "act": [x.tolist() for x in np.random.randn(n, 1).astype(np.float32)],
-        }
-    )
-    frame.to_parquet(path, index=False)
+    write_obs_act_parquet(path, n=5, seed=31)
 
     adapter = ParquetOfflineDatasetAdapter(
         path=str(path),
-        columns={"obs": "obs", "act": "act"},
+        columns=obs_act_columns,
     )
     data = adapter.load_obs_act()
 
     assert set(data.keys()) == {"obs", "act"}
-    assert data["obs"].shape == (n, 3)
-    assert data["act"].shape == (n, 1)
+    assert data["obs"].shape == (5, 3)
+    assert data["act"].shape == (5, 1)
 
 
-def test_parquet_adapter_reads_explicit_terminated_and_truncated(tmp_path: Path) -> None:
+def test_parquet_adapter_reads_explicit_terminated_and_truncated(
+    tmp_path: Path,
+    full_columns: dict[str, str],
+) -> None:
     path = tmp_path / "offline.parquet"
-    frame = _write_dataset(path)
+    terminated = np.array([1, 0, 0, 0, 0, 1], dtype=np.bool_)
+    truncated = np.array([0, 0, 0, 1, 0, 0], dtype=np.bool_)
+    frame = write_offline_parquet(
+        path,
+        n=6,
+        seed=32,
+        done=np.array([1, 0, 0, 1, 0, 0], dtype=np.bool_),
+        terminated=terminated,
+        truncated=truncated,
+    )
 
     adapter = ParquetOfflineDatasetAdapter(
         path=str(path),
-        columns=_columns(),
+        columns=full_columns,
     )
     data = adapter.load()
 
@@ -82,11 +63,12 @@ def test_parquet_adapter_reads_explicit_terminated_and_truncated(tmp_path: Path)
 @pytest.mark.parametrize("missing_key", ["terminated", "truncated"])
 def test_parquet_adapter_requires_terminal_mappings(
     tmp_path: Path,
+    full_columns: dict[str, str],
     missing_key: str,
 ) -> None:
     path = tmp_path / "offline.parquet"
-    _write_dataset(path)
-    columns: dict[str, str | None] = _columns()
+    write_offline_parquet(path, n=6, seed=33)
+    columns: dict[str, str | None] = dict(full_columns)
     columns[missing_key] = None
 
     adapter = ParquetOfflineDatasetAdapter(path=str(path), columns=columns)  # type: ignore[arg-type]
@@ -97,7 +79,10 @@ def test_parquet_adapter_requires_terminal_mappings(
         adapter.load()
 
 
-def test_parquet_adapter_rejects_irregular_vector_column(tmp_path: Path) -> None:
+def test_parquet_adapter_rejects_irregular_vector_column(
+    tmp_path: Path,
+    full_columns: dict[str, str],
+) -> None:
     path = tmp_path / "offline_irregular.parquet"
     frame = pd.DataFrame(
         {
@@ -112,6 +97,6 @@ def test_parquet_adapter_rejects_irregular_vector_column(tmp_path: Path) -> None
     )
     frame.to_parquet(path, index=False)
 
-    adapter = ParquetOfflineDatasetAdapter(path=str(path), columns=_columns())
+    adapter = ParquetOfflineDatasetAdapter(path=str(path), columns=full_columns)
     with pytest.raises(ValueError, match="must contain equal-length vectors"):
         adapter.load()

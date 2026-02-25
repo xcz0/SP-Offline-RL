@@ -45,12 +45,3 @@ class ModelBundle:
     actor: torch.nn.Module
     critic1: torch.nn.Module | None = None
     critic2: torch.nn.Module | None = None
-
-
-@dataclass(slots=True)
-class RunContext:
-    """Runtime metadata for a train/eval execution."""
-
-    log_path: str
-    run_name: str
-    resolved_config: dict[str, Any]

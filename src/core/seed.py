@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import random
-from typing import Any
 
 import numpy as np
 import torch
@@ -17,9 +16,3 @@ def set_global_seed(seed: int, *, seed_cuda: bool = True) -> None:
     torch.manual_seed(seed)
     if seed_cuda:
         torch.cuda.manual_seed_all(seed)
-
-
-def seed_vector_env(env: Any, seed: int) -> None:
-    """Seed vectorized environments with a strict interface contract."""
-
-    env.seed(seed)

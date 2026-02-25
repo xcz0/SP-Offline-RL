@@ -1,4 +1,4 @@
-"""Shared helpers and compatibility wrappers for train/eval pipelines."""
+"""Shared helpers for train/eval pipelines."""
 
 from __future__ import annotations
 
@@ -10,79 +10,6 @@ from tianshou.data import Collector, CollectStats
 
 from src.core.exceptions import ConfigurationError
 from src.logging.metrics import collect_stats_to_metrics
-from src.runners import runtime_builder
-
-BCSimComponents = runtime_builder.BCSimComponents
-GymComponents = runtime_builder.GymComponents
-
-
-def make_test_envs(task: str, num_test_envs: int):
-    return runtime_builder.make_test_envs(task, num_test_envs)
-
-
-def build_algorithm(cfg: DictConfig, env: Any, device: str):
-    return runtime_builder.build_algorithm(cfg, env, device)
-
-
-def infer_action_bounds_from_dataset(act):
-    return runtime_builder.infer_action_bounds_from_dataset(act)
-
-
-def build_space_info_from_obs_act(
-    obs_act_data,
-    *,
-    action_low: float | None = None,
-    action_high: float | None = None,
-):
-    return runtime_builder.build_space_info_from_obs_act(
-        obs_act_data,
-        action_low=action_low,
-        action_high=action_high,
-    )
-
-
-def build_algorithm_from_space_info(
-    cfg: DictConfig,
-    space_info: Any,
-    action_space: Any,
-    device: str,
-):
-    return runtime_builder.build_algorithm_from_space_info(
-        cfg,
-        space_info,
-        action_space,
-        device,
-    )
-
-
-def prepare_bc_sim_components(
-    cfg: DictConfig,
-    device: str,
-    *,
-    seed: int,
-    include_train_buffer: bool,
-) -> BCSimComponents:
-    return runtime_builder.prepare_bc_sim_components(
-        cfg,
-        device,
-        seed=seed,
-        include_train_buffer=include_train_buffer,
-    )
-
-
-def prepare_gym_components(
-    cfg: DictConfig,
-    device: str,
-    *,
-    seed: int,
-    include_train_buffer: bool,
-) -> GymComponents:
-    return runtime_builder.prepare_gym_components(
-        cfg,
-        device,
-        seed=seed,
-        include_train_buffer=include_train_buffer,
-    )
 
 
 def build_sim_eval_cfg(

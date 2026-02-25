@@ -5,12 +5,12 @@ from __future__ import annotations
 import json
 
 import hydra
+from dotenv import load_dotenv
 from omegaconf import DictConfig, OmegaConf
 
 from src.runners import train
-from src.utils.env import load_env_file
 
-load_env_file()
+load_dotenv(override=False)
 
 
 @hydra.main(version_base=None, config_path="../configs", config_name="config")

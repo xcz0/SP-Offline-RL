@@ -3,17 +3,19 @@
 from __future__ import annotations
 
 import datetime
+import json
 import os
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from omegaconf import DictConfig
+import torch
+from omegaconf import DictConfig, OmegaConf
 from tianshou.data import Collector, CollectStats
 from tianshou.trainer import InfoStats, OfflineTrainerParams
 
 from src.core.exceptions import ConfigurationError
-from src.core.seed import seed_vector_env, set_global_seed
+from src.core.seed import set_global_seed
 from src.evaluation.collector import SimulationEvalCollector
 from src.evaluation.deps import require_sprwkv
 from src.evaluation.pipeline import evaluate_composite_with_simulator
@@ -24,10 +26,9 @@ from src.runners.common import (
     build_sim_eval_cfg,
     collect_eval_metrics,
     load_policy_state,
-    prepare_bc_sim_components,
-    prepare_gym_components,
 )
 from src.runners.mode import resolve_eval_mode, resolve_train_mode
+from src.runners.runtime_builder import prepare_bc_sim_components, prepare_gym_components
 from src.runners.types import (
     EvalMetrics,
     EvaluationResult,
@@ -36,8 +37,6 @@ from src.runners.types import (
     TrainingResult,
     to_builtin,
 )
-from src.utils.hydra import as_yaml, resolve_config, resolve_device
-from src.utils.io import ensure_dir, save_json, save_text
 from src.utils.perf import PerfTracker
 
 
@@ -82,6 +81,24 @@ def _build_perf_tracker(cfg: DictConfig) -> PerfTracker:
     return PerfTracker(enabled=bool(perf_cfg.get("enabled", False)))
 
 
+def _resolve_device(device: str) -> str:
+    if device == "auto":
+        return "cuda" if torch.cuda.is_available() else "cpu"
+    return device
+
+
+def _save_text(path: str | Path, text: str) -> None:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(text, encoding="utf-8")
+
+
+def _save_json(path: str | Path, data: dict[str, Any]) -> None:
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
 def _persist_sim_eval_artifacts(
     log_path: str,
     collector: SimulationEvalCollector,
@@ -100,7 +117,7 @@ def _persist_sim_eval_artifacts(
         policy_metrics_path = sim_dir / "policy_metrics.parquet"
         policy_summary_path = sim_dir / "policy_summary.json"
         policy_result.per_target_metrics.to_parquet(policy_metrics_path, index=False)
-        save_json(policy_summary_path, to_builtin(policy_result.summary))
+        _save_json(policy_summary_path, to_builtin(policy_result.summary))
         artifacts.policy_metrics_path = str(policy_metrics_path)
         artifacts.policy_summary_path = str(policy_summary_path)
 
@@ -111,13 +128,13 @@ def _persist_sim_eval_artifacts(
         replay_summary_path = sim_dir / "replay_summary.json"
         replay_result.final_metrics.to_parquet(replay_final_path, index=False)
         replay_result.trajectory.to_parquet(replay_traj_path, index=False)
-        save_json(replay_summary_path, to_builtin(replay_result.summary))
+        _save_json(replay_summary_path, to_builtin(replay_result.summary))
         artifacts.replay_final_metrics_path = str(replay_final_path)
         artifacts.replay_trajectory_path = str(replay_traj_path)
         artifacts.replay_summary_path = str(replay_summary_path)
 
     composite_summary_path = sim_dir / "composite_summary.json"
-    save_json(composite_summary_path, artifacts.summary)
+    _save_json(composite_summary_path, artifacts.summary)
     artifacts.composite_summary_path = str(composite_summary_path)
     return artifacts
 
@@ -125,15 +142,15 @@ def _persist_sim_eval_artifacts(
 def train(cfg: DictConfig) -> TrainingResult:
     """Run end-to-end offline training and return typed summary metrics."""
 
-    device = resolve_device(str(cfg.device))
+    device = _resolve_device(str(cfg.device))
     perf = _build_perf_tracker(cfg)
     timestamp = datetime.datetime.now().strftime("%y%m%d-%H%M%S")
     run_name = os.path.join(_get_task_name(cfg), str(cfg.algo.name), str(cfg.seed), timestamp)
     log_path = os.path.join(str(cfg.paths.logdir), run_name)
-    ensure_dir(log_path)
+    Path(log_path).mkdir(parents=True, exist_ok=True)
 
     resolved_config_path = os.path.join(log_path, "resolved_config.yaml")
-    save_text(resolved_config_path, as_yaml(cfg))
+    _save_text(resolved_config_path, OmegaConf.to_yaml(cfg, resolve=True))
 
     gym_components = None
     logger_artifacts = None
@@ -203,7 +220,12 @@ def train(cfg: DictConfig) -> TrainingResult:
         if cfg.resume_path:
             with perf.time("load_checkpoint"):
                 load_policy_state(algorithm, str(cfg.resume_path), device)
-        resolved_cfg = resolve_config(cfg) if str(cfg.logger.type) == "wandb" else None
+        resolved_cfg = None
+        if str(cfg.logger.type) == "wandb":
+            resolved_cfg_candidate = OmegaConf.to_container(cfg, resolve=True)
+            if not isinstance(resolved_cfg_candidate, dict):
+                raise ConfigurationError("Resolved config must be a dictionary for logger.")
+            resolved_cfg = resolved_cfg_candidate
 
         with perf.time("build_logger"):
             logger_artifacts = build_logger(
@@ -248,7 +270,7 @@ def train(cfg: DictConfig) -> TrainingResult:
                 evaluation=eval_metrics,
                 sim_eval=sim_artifacts,
             )
-            save_json(Path(log_path) / str(cfg.paths.save_metrics_filename), result.to_dict())
+            _save_json(Path(log_path) / str(cfg.paths.save_metrics_filename), result.to_dict())
             return result
 
         with perf.time("training"):
@@ -277,7 +299,7 @@ def train(cfg: DictConfig) -> TrainingResult:
                 sim_artifacts = _persist_sim_eval_artifacts(log_path, sim_collector)
             else:
                 assert gym_components is not None
-                seed_vector_env(gym_components.test_envs, int(cfg.seed))
+                gym_components.test_envs.seed(int(cfg.seed))
                 _, metrics = collect_eval_metrics(
                     test_collector,
                     num_episodes=int(cfg.env.num_test_envs),
@@ -309,7 +331,7 @@ def train(cfg: DictConfig) -> TrainingResult:
             evaluation=eval_metrics,
             sim_eval=sim_artifacts,
         )
-        save_json(Path(log_path) / str(cfg.paths.save_metrics_filename), result.to_dict())
+        _save_json(Path(log_path) / str(cfg.paths.save_metrics_filename), result.to_dict())
         return result
     finally:
         if logger_artifacts is not None:
@@ -322,7 +344,7 @@ def train(cfg: DictConfig) -> TrainingResult:
 def evaluate(cfg: DictConfig, checkpoint_path: str | None = None) -> EvaluationResult:
     """Evaluate a policy checkpoint and return aggregate typed metrics."""
 
-    device = resolve_device(str(cfg.device))
+    device = _resolve_device(str(cfg.device))
     perf = _build_perf_tracker(cfg)
     algo_name = str(cfg.algo.name)
     eval_mode = resolve_eval_mode(cfg, algo_name)

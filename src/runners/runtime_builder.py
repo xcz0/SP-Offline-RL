@@ -24,7 +24,6 @@ from src.runners.data_builder import (
     obs_norm_stats_as_lists,
 )
 from src.runners.norm_builder import apply_obs_norm_to_envs
-from src.core.seed import seed_vector_env
 
 
 @dataclass(slots=True)
@@ -220,7 +219,7 @@ def prepare_gym_components(
 
     test_envs = make_test_envs(str(cfg.env.task), int(cfg.env.num_test_envs))
     test_envs = apply_obs_norm_to_envs(test_envs, obs_norm_mean, obs_norm_var)
-    seed_vector_env(test_envs, seed)
+    test_envs.seed(seed)
     algorithm = build_algorithm(cfg, env, device)
     return GymComponents(
         env=env,

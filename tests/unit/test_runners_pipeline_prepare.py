@@ -6,7 +6,6 @@ from typing import Any
 import pytest
 
 from src.runners import runtime_builder
-from src.runners.common import prepare_bc_sim_components, prepare_gym_components
 from tests.factories.config_factory import (
     BC_IL_ALGO_CFG,
     TD3_BC_ALGO_CFG,
@@ -48,7 +47,7 @@ def test_prepare_gym_components(
     cfg.model = dict(model_cfg)
     cfg.algo = dict(algo_cfg)
 
-    components = prepare_gym_components(
+    components = runtime_builder.prepare_gym_components(
         cfg,
         "cpu",
         seed=0,
@@ -75,7 +74,7 @@ def test_prepare_bc_sim_components_with_obs_norm(
     cfg.model = mlp_actor_cfg()
     cfg.algo = dict(BC_IL_ALGO_CFG)
 
-    components = prepare_bc_sim_components(
+    components = runtime_builder.prepare_bc_sim_components(
         cfg,
         "cpu",
         seed=0,

@@ -6,10 +6,10 @@ import argparse
 import json
 from pathlib import Path
 
+from dotenv import load_dotenv
 from src.evaluation.replay_evaluator import evaluate_replay_with_simulator
-from src.utils.env import load_env_file
 
-load_env_file()
+load_dotenv(override=False)
 
 
 def _parse_user_ids(text: str | None) -> list[int] | None:

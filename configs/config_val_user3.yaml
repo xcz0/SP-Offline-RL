@@ -1,0 +1,38 @@
+defaults:
+  - env: custom_sp_env
+  - algo: bc_il
+  - model: mlp_actor
+  - data: parquet_sp_bc_train
+  - sim_eval: user3_card1
+  - logger: tensorboard
+  - _self_
+
+seed: 0
+device: auto
+resume_path: null
+resume_id: null
+watch: false
+buffer_size: null
+checkpoint_path: ${oc.env:SPRL_CHECKPOINT_PATH,''}
+eval_mode: auto
+
+perf:
+  enabled: false
+  profile_steps: false
+  eval_workers: 1
+  pin_memory: true
+  prefetch_batches: 2
+
+train:
+  epoch: 2
+  epoch_num_steps: 5000
+  batch_size: 256
+
+paths:
+  logdir: ${oc.env:SPRL_LOGDIR,log}
+  save_metrics_filename: final_metrics.json
+
+hydra:
+  run:
+    dir: .
+  output_subdir: null

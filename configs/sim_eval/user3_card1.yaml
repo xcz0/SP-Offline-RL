@@ -1,0 +1,20 @@
+enabled: true
+data_dir: data
+user_ids: [3]
+cards_per_user: 1
+min_target_occurrences: 5
+warmup_mode: fifth
+eval_every_n_epoch: 5
+seed: ${seed}
+score_weights:
+  retention_area: 0.5
+  final_retention: 0.3
+  review_count_norm: 0.2
+predictor:
+  model_path: ${oc.env:SPRL_PREDICTOR_MODEL_PATH,''}
+  device: ${device}
+  dtype: float32
+policy_eval:
+  enabled: true
+replay_eval:
+  enabled: true

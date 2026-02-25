@@ -31,3 +31,13 @@ def test_default_config_load_and_override() -> None:
     cfg.algo = {"name": "bc_il", "lr": 1e-4}
     assert cfg.train.epoch == 2
     assert cfg.algo.name == "bc_il"
+
+
+def test_validation_config_for_user3_single_card() -> None:
+    val_cfg = OmegaConf.load(CONFIG_ROOT / "config_val_user3.yaml")
+    assert val_cfg.train.epoch == 2
+    assert val_cfg.device == "auto"
+
+    sim_eval_cfg = OmegaConf.load(CONFIG_ROOT / "sim_eval" / "user3_card1.yaml")
+    assert list(sim_eval_cfg.user_ids) == [3]
+    assert sim_eval_cfg.cards_per_user == 1
